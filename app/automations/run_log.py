@@ -1,7 +1,14 @@
-"""Log em memória do progresso da automação, consumido pelo dashboard web via polling."""
+"""Log em memória do progresso da automação, consumido pelo dashboard web via polling.
+
+Suporta múltiplos "slots" de execução independentes (ex: Robô A / Robô B),
+cada um rodando em sua própria thread com seu próprio log/estado — permite
+duas automações em paralelo sem uma interferir na outra.
+"""
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+DEFAULT_SLOT = "A"
 
 
 @dataclass
@@ -12,26 +19,33 @@ class RunLog:
     pause_requested: bool = False
 
 
-_log = RunLog()
+_logs: dict[str, RunLog] = {}
 _lock = threading.Lock()
 
 
-def start_run(cnpj: str) -> None:
+def _get(slot: str) -> RunLog:
+    if slot not in _logs:
+        _logs[slot] = RunLog()
+    return _logs[slot]
+
+
+def start_run(cnpj: str, slot: str = DEFAULT_SLOT) -> None:
     with _lock:
-        _log.running = True
-        _log.current_cnpj = cnpj
-        _log.entries = []
-        _log.pause_requested = False
+        log = _get(slot)
+        log.running = True
+        log.current_cnpj = cnpj
+        log.entries = []
+        log.pause_requested = False
 
 
-def request_pause() -> None:
+def request_pause(slot: str = DEFAULT_SLOT) -> None:
     with _lock:
-        _log.pause_requested = True
+        _get(slot).pause_requested = True
 
 
-def is_pause_requested() -> bool:
+def is_pause_requested(slot: str = DEFAULT_SLOT) -> bool:
     with _lock:
-        return _log.pause_requested
+        return _get(slot).pause_requested
 
 
 class PausedByUser(Exception):
@@ -39,36 +53,43 @@ class PausedByUser(Exception):
     pass
 
 
-def check_pause() -> None:
-    if is_pause_requested():
+def check_pause(slot: str = DEFAULT_SLOT) -> None:
+    if is_pause_requested(slot):
         raise PausedByUser("Execução pausada pelo usuário")
 
 
-def add(message: str, level: str = "info") -> None:
+def add(message: str, level: str = "info", slot: str = DEFAULT_SLOT) -> None:
     with _lock:
-        _log.entries.append({
+        _get(slot).entries.append({
             "message": message,
             "level": level,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
 
-def finish_run(success: bool, message: str = "") -> None:
+def finish_run(success: bool, message: str = "", slot: str = DEFAULT_SLOT) -> None:
     with _lock:
-        _log.running = False
+        log = _get(slot)
+        log.running = False
         if message:
-            _log.entries.append({
+            log.entries.append({
                 "message": message,
                 "level": "success" if success else "error",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
 
-def get_state() -> dict:
+def get_state(slot: str = DEFAULT_SLOT) -> dict:
     with _lock:
+        log = _get(slot)
         return {
-            "running": _log.running,
-            "current_cnpj": _log.current_cnpj,
-            "entries": list(_log.entries),
-            "pause_requested": _log.pause_requested,
+            "running": log.running,
+            "current_cnpj": log.current_cnpj,
+            "entries": list(log.entries),
+            "pause_requested": log.pause_requested,
         }
+
+
+def list_slots() -> list[str]:
+    with _lock:
+        return sorted(_logs.keys()) or [DEFAULT_SLOT]

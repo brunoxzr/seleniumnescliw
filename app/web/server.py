@@ -1,3 +1,4 @@
+import os
 import threading
 
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ from app.automations import cnpj_list, pause, run_log, tracker
 from app.automations.orchestrator import (
     DEFAULT_PROFILE,
     SINGLE_STEP_RUNNERS,
+    SLOTS,
     run_for_next_pending_cnpj,
     run_single_step,
 )
@@ -19,12 +21,28 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 
 PILOT_PROFILE_ID = "k1eqaqk4"
 
-_run_lock = threading.Lock()
+
+def _welcome_name() -> str:
+    """Nome exibido na tela de boas-vindas — usa a parte antes do @ do e-mail do
+    Buildfy configurado no .env, já que não há um campo de nome dedicado."""
+    email = os.environ.get("BUILDFY_EMAIL", "")
+    return email.split("@")[0] if email else "usuário"
+
+
+def _slot() -> str:
+    """Slot da requisição — vem do query string (GET) ou do corpo JSON (POST),
+    default 'A' pra manter compatibilidade com chamadas antigas sem slot."""
+    if request.method == "GET":
+        return (request.args.get("slot") or "A").strip() or "A"
+    body = request.get_json(silent=True) or {}
+    return (body.get("slot") or "A").strip() or "A"
 
 
 @app.route("/")
 def index():
-    return render_template("index.html", pilot_profile_id=PILOT_PROFILE_ID)
+    return render_template(
+        "index.html", pilot_profile_id=PILOT_PROFILE_ID, slots=SLOTS, welcome_name=_welcome_name()
+    )
 
 
 @app.route("/api/test-open", methods=["POST"])
@@ -47,8 +65,9 @@ def test_open():
 
 @app.route("/api/automation/start", methods=["POST"])
 def automation_start():
-    if run_log.get_state()["running"]:
-        return jsonify({"ok": False, "error": "Já existe uma execução em andamento"}), 409
+    slot = _slot()
+    if run_log.get_state(slot)["running"]:
+        return jsonify({"ok": False, "error": f"Já existe uma execução em andamento no robô {slot}"}), 409
 
     body = request.get_json(silent=True) or {}
     requested_cnpj = (body.get("cnpj") or "").strip() or None
@@ -56,7 +75,7 @@ def automation_start():
 
     def _run():
         try:
-            run_for_next_pending_cnpj(requested_cnpj=requested_cnpj, profile_id=profile_id)
+            run_for_next_pending_cnpj(requested_cnpj=requested_cnpj, profile_id=profile_id, slot=slot)
         except Exception:
             pass  # já registrado no run_log pelo orquestrador
 
@@ -67,8 +86,9 @@ def automation_start():
 
 @app.route("/api/automation/run-step", methods=["POST"])
 def automation_run_step():
-    if run_log.get_state()["running"]:
-        return jsonify({"ok": False, "error": "Já existe uma execução em andamento"}), 409
+    slot = _slot()
+    if run_log.get_state(slot)["running"]:
+        return jsonify({"ok": False, "error": f"Já existe uma execução em andamento no robô {slot}"}), 409
 
     body = request.get_json(silent=True) or {}
     cnpj = (body.get("cnpj") or "").strip()
@@ -82,7 +102,7 @@ def automation_run_step():
 
     def _run():
         try:
-            run_single_step(cnpj, step, profile_id=profile_id)
+            run_single_step(cnpj, step, profile_id=profile_id, slot=slot)
         except Exception:
             pass  # já registrado no run_log
 
@@ -160,29 +180,32 @@ def api_adspower_profiles():
 
 @app.route("/api/automation/status")
 def automation_status():
-    state = run_log.get_state()
-    state["manual_step"] = pause.get_status()
+    slot = _slot()
+    state = run_log.get_state(slot)
+    state["manual_step"] = pause.get_status(slot)
     return jsonify(state)
 
 
 @app.route("/api/automation/resume", methods=["POST"])
 def automation_resume():
-    pause.resume()
+    pause.resume(_slot())
     return jsonify({"ok": True})
 
 
 @app.route("/api/automation/pause", methods=["POST"])
 def automation_pause():
-    run_log.request_pause()
+    slot = _slot()
+    run_log.request_pause(slot)
     # se estiver parado numa pausa manual (aguardando "Continuar"), libera para
     # que o check_pause() seguinte capture o pedido de pausa
-    pause.resume()
+    pause.resume(slot)
     return jsonify({"ok": True})
 
 
 @app.route("/api/automation/close-browser", methods=["POST"])
 def automation_close_browser():
-    if run_log.get_state()["running"]:
+    slot = _slot()
+    if run_log.get_state(slot)["running"]:
         return jsonify({"ok": False, "error": "Pare a execução em andamento antes de fechar o navegador"}), 409
 
     body = request.get_json(silent=True) or {}

@@ -1,11 +1,14 @@
 """Mecanismo de pausa para intervenção manual durante um fluxo de automação.
 
 Uma etapa chama `wait_for_manual_step(...)` que bloqueia a thread da automação
-até que a interface web sinalize retomada via `resume()`.
+até que a interface web sinalize retomada via `resume()`. Suporta múltiplos
+slots independentes (Robô A / Robô B) — cada um com seu próprio estado de
+pausa, para não bloquear um robô ao confirmar o outro.
 """
 import threading
-import time
 from dataclasses import dataclass, field
+
+DEFAULT_SLOT = "A"
 
 
 @dataclass
@@ -15,30 +18,38 @@ class ManualStepState:
     _event: threading.Event = field(default_factory=threading.Event)
 
 
-_state = ManualStepState()
+_states: dict[str, ManualStepState] = {}
 _lock = threading.Lock()
 
 
-def wait_for_manual_step(message: str, timeout: int = 900) -> None:
-    with _lock:
-        _state.active = True
-        _state.message = message
-        _state._event.clear()
+def _get(slot: str) -> ManualStepState:
+    if slot not in _states:
+        _states[slot] = ManualStepState()
+    return _states[slot]
 
-    resumed = _state._event.wait(timeout=timeout)
+
+def wait_for_manual_step(message: str, timeout: int = 900, slot: str = DEFAULT_SLOT) -> None:
+    state = _get(slot)
+    with _lock:
+        state.active = True
+        state.message = message
+        state._event.clear()
+
+    resumed = state._event.wait(timeout=timeout)
 
     with _lock:
-        _state.active = False
-        _state.message = ""
+        state.active = False
+        state.message = ""
 
     if not resumed:
         raise TimeoutError(f"Etapa manual não confirmada a tempo: {message}")
 
 
-def resume() -> None:
-    _state._event.set()
+def resume(slot: str = DEFAULT_SLOT) -> None:
+    _get(slot)._event.set()
 
 
-def get_status() -> dict:
+def get_status(slot: str = DEFAULT_SLOT) -> dict:
     with _lock:
-        return {"active": _state.active, "message": _state.message}
+        state = _get(slot)
+        return {"active": state.active, "message": state.message}
