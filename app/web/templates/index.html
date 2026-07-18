@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>Painel de Automação</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #171a21;
+      --border: #262b36;
+      --text: #e5e7eb;
+      --muted: #8b93a3;
+      --accent: #3b82f6;
+      --success: #22c55e;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --manual: #a855f7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 16px;
+    }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card h2 { font-size: 15px; margin: 0 0 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .status-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+    .status-dot.running { background: var(--accent); animation: pulse 1.5s infinite; }
+    .status-dot.idle { background: var(--muted); }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+    .status-text { font-size: 15px; }
+    .status-cnpj { color: var(--muted); font-size: 13px; }
+
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    button:hover { filter: brightness(1.1); }
+    button:disabled { background: var(--muted); cursor: not-allowed; }
+    button.resume { background: var(--manual); }
+
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: rgba(255,255,255,0.04); }
+    tbody tr.selected { background: rgba(59,130,246,0.15); }
+    tbody td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+    .status-pill { display:inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .status-pill.pendente { background: rgba(139,147,163,0.2); color: var(--muted); }
+    .status-pill.concluido { background: rgba(34,197,94,0.2); color: var(--success); }
+    .status-pill.abortado { background: rgba(239,68,68,0.2); color: var(--error); }
+    .status-pill.emandamento { background: rgba(59,130,246,0.2); color: var(--accent); }
+
+    .cp-row { display:flex; align-items:center; gap:8px; font-size:13px; padding:4px 0; }
+    .cp-row label { flex:1; cursor:pointer; }
+    .cp-row.done label { color: var(--success); }
+    .cp-run-btn {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--border);
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .cp-run-btn:hover { background: rgba(59,130,246,0.12); }
+    .cp-run-btn:disabled { color: var(--muted); border-color: var(--border); cursor: not-allowed; background: transparent; }
+
+    .manual-banner {
+      display: none;
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid var(--manual);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .manual-banner.show { display: flex; }
+    .manual-banner .msg { font-size: 14px; }
+    .manual-banner .msg .label { color: var(--manual); font-weight: 600; display: block; font-size: 12px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.03em; }
+
+    .log-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+    .log-entry {
+      display: flex;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      background: rgba(255,255,255,0.02);
+      border-left: 3px solid var(--border);
+    }
+    .log-entry.info { border-left-color: var(--accent); }
+    .log-entry.success { border-left-color: var(--success); }
+    .log-entry.error { border-left-color: var(--error); }
+    .log-entry.warning { border-left-color: var(--warning); }
+    .log-entry.manual { border-left-color: var(--manual); background: rgba(168,85,247,0.06); }
+    .log-time { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .log-msg { flex: 1; }
+    .log-empty { color: var(--muted); font-size: 13px; padding: 8px; }
+
+    .celebrate-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      backdrop-filter: blur(2px);
+    }
+    .celebrate-overlay.show { display: flex; }
+    .celebrate-card {
+      background: linear-gradient(160deg, var(--card), #1d2130);
+      border: 1px solid var(--success);
+      border-radius: 16px;
+      padding: 36px 40px;
+      text-align: center;
+      max-width: 380px;
+      box-shadow: 0 0 60px rgba(34,197,94,0.25);
+      animation: pop-in 0.35s cubic-bezier(.2,1.4,.4,1);
+    }
+    @keyframes pop-in {
+      0% { transform: scale(0.85); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .celebrate-emoji { font-size: 48px; margin-bottom: 8px; }
+    .celebrate-title { font-size: 20px; font-weight: 700; color: var(--success); margin-bottom: 6px; }
+    .celebrate-sub { font-size: 14px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+    .celebrate-close {
+      background: var(--success);
+    }
+
+    .confetti-piece {
+      position: fixed;
+      top: -10px;
+      width: 8px;
+      height: 14px;
+      opacity: 0.9;
+      z-index: 999;
+      animation: confetti-fall linear forwards;
+    }
+    @keyframes confetti-fall {
+      to { transform: translateY(105vh) rotate(360deg); opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+  <div class="celebrate-overlay" id="celebrate-overlay">
+    <div class="celebrate-card">
+      <div class="celebrate-emoji">🎉</div>
+      <div class="celebrate-title">Parabéns, você completou um BM!</div>
+      <div class="celebrate-sub" id="celebrate-sub">Fluxo automatizável concluído com sucesso.</div>
+      <button class="celebrate-close" id="btn-celebrate-close">Show de bola</button>
+    </div>
+  </div>
+
+  <h1>Painel de Automação</h1>
+  <div class="subtitle">Buildfy → Facebook Business Manager</div>
+
+  <div class="card">
+    <h2>Teste de conexão AdsPower</h2>
+    <p style="color: var(--muted); font-size: 13px;">Perfil piloto: <code>{{ pilot_profile_id }}</code></p>
+    <button id="btn-test">Abrir perfil e testar conexão</button>
+    <div id="test-result" style="margin-top: 12px; font-size: 13px; color: var(--muted);"></div>
+  </div>
+
+  <div class="card">
+    <h2>Automação</h2>
+    <div class="status-row">
+      <div class="status-dot idle" id="status-dot"></div>
+      <div>
+        <div class="status-text" id="status-text">Parado</div>
+        <div class="status-cnpj" id="status-cnpj"></div>
+      </div>
+    </div>
+
+    <div class="manual-banner" id="manual-banner">
+      <div class="msg">
+        <span class="label">Ação manual necessária</span>
+        <span id="manual-msg"></span>
+      </div>
+      <button class="resume" id="btn-resume">Continuar</button>
+    </div>
+
+    <div style="margin-bottom: 14px;">
+      <label style="display:block; font-size: 13px; color: var(--muted); margin-bottom: 4px;">Perfil AdsPower</label>
+      <select id="select-profile" style="width: 100%; padding: 8px; border-radius: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);"></select>
+    </div>
+
+    <button id="btn-start">Processar CNPJ selecionado</button>
+    <button id="btn-pause" style="background: var(--warning); margin-left: 8px;" disabled>Pausar</button>
+    <button id="btn-close-browser" style="background: transparent; border: 1px solid var(--border); color: var(--muted); margin-left: 8px;">Fechar navegador</button>
+    <span id="selected-cnpj-label" style="margin-left: 10px; font-size: 13px; color: var(--muted);"></span>
+    <p style="font-size:11px; color:var(--muted); margin: 8px 0 0;">
+      O navegador fica aberto entre execuções para agilizar testes (não reabre o Chrome do zero a cada etapa). Use "Fechar navegador" quando terminar por hoje ou for trocar de perfil.
+    </p>
+  </div>
+
+  <div class="card" id="checkpoint-card" style="display:none;">
+    <h2>Etapas do CNPJ selecionado</h2>
+    <div id="checkpoint-list" style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;"></div>
+
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
+      <input id="cp-business-id" placeholder="business_id (opcional)" style="flex:1; padding:7px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+      <input id="cp-site-id" placeholder="site_id (opcional)" style="flex:1; padding:7px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+    </div>
+    <p style="font-size:12px; color:var(--muted); margin: 0 0 10px;">
+      Marque uma etapa como concluída para pular ela na próxima execução (ex: quando o BM já existe mas o Facebook rejeitou recriar por nome duplicado). Preencha business_id/site_id se estiver marcando "Business Manager criado" ou "Dados do site obtidos" pela primeira vez manualmente.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>CNPJs (cnpjs.csv)</h2>
+    <input id="cnpj-search" placeholder="Buscar por CNPJ ou razão social..." style="width:100%; padding:8px; margin-bottom:10px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+    <div style="max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+      <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+        <thead>
+          <tr style="position: sticky; top:0; background: var(--card);">
+            <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);"></th>
+            <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">CNPJ</th>
+            <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">Razão Social</th>
+            <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">Status</th>
+          </tr>
+        </thead>
+        <tbody id="cnpj-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div class="log-list" id="log-list">
+      <div class="log-empty">Nenhuma execução ainda.</div>
+    </div>
+  </div>
+
+  <script>
+    const el = id => document.getElementById(id);
+
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function renderLog(entries) {
+      const list = el('log-list');
+      if (!entries.length) {
+        list.innerHTML = '<div class="log-empty">Nenhuma execução ainda.</div>';
+        return;
+      }
+      list.innerHTML = entries.map(e => `
+        <div class="log-entry ${e.level}">
+          <span class="log-time">${fmtTime(e.timestamp)}</span>
+          <span class="log-msg">${e.message}</span>
+        </div>
+      `).join('');
+      list.scrollTop = list.scrollHeight;
+    }
+
+    const CONFETTI_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
+
+    function fireConfetti() {
+      const count = 60;
+      for (let i = 0; i < count; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left = Math.random() * 100 + 'vw';
+        piece.style.background = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+        piece.style.animationDuration = (2.2 + Math.random() * 1.6) + 's';
+        piece.style.animationDelay = (Math.random() * 0.4) + 's';
+        document.body.appendChild(piece);
+        setTimeout(() => piece.remove(), 4200);
+      }
+    }
+
+    let lastCelebratedTimestamp = null;
+
+    function maybeCelebrate(entries, cnpj) {
+      const win = [...entries].reverse().find(e =>
+        e.level === 'success' && e.message.includes('Etapa automatizável concluída')
+      );
+      if (!win || win.timestamp === lastCelebratedTimestamp) return;
+      lastCelebratedTimestamp = win.timestamp;
+
+      el('celebrate-sub').textContent = cnpj
+        ? `CNPJ ${cnpj} passou por todas as etapas automatizáveis. Falta só o resto manual pelo Telegram.`
+        : 'Fluxo automatizável concluído com sucesso.';
+      el('celebrate-overlay').classList.add('show');
+      fireConfetti();
+    }
+
+    async function poll() {
+      try {
+        const resp = await fetch('/api/automation/status');
+        const data = await resp.json();
+
+        el('status-dot').className = 'status-dot ' + (data.running ? 'running' : 'idle');
+        el('status-text').textContent = data.running ? 'Em execução' : 'Parado';
+        el('status-cnpj').textContent = data.current_cnpj ? `CNPJ: ${data.current_cnpj}` : '';
+
+        el('btn-start').disabled = data.running;
+        el('btn-pause').disabled = data.pause_requested;
+        document.querySelectorAll('[data-run-step]').forEach(btn => {
+          btn.disabled = data.running;
+          if (!data.running) btn.textContent = 'Rodar';
+        });
+
+        const manual = data.manual_step;
+        if (manual && manual.active) {
+          el('manual-banner').classList.add('show');
+          el('manual-msg').textContent = manual.message;
+        } else {
+          el('manual-banner').classList.remove('show');
+        }
+
+        renderLog(data.entries);
+        maybeCelebrate(data.entries, data.current_cnpj);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    el('btn-celebrate-close').addEventListener('click', () => {
+      el('celebrate-overlay').classList.remove('show');
+    });
+
+    let selectedCnpj = null;
+
+    function statusLabel(status) {
+      const map = {
+        pendente: 'Pendente',
+        concluido: 'Concluído',
+        abortado: 'Abortado',
+      };
+      return map[status] || 'Em andamento';
+    }
+
+    function statusClass(status) {
+      if (status === 'pendente') return 'pendente';
+      if (status === 'concluido') return 'concluido';
+      if (status === 'abortado') return 'abortado';
+      return 'emandamento';
+    }
+
+    let allCnpjs = [];
+
+    function selectCnpj(cnpj) {
+      selectedCnpj = cnpj;
+      el('selected-cnpj-label').textContent = cnpj ? 'Selecionado: ' + cnpj : '';
+      renderCnpjTable(el('cnpj-search').value);
+      loadCheckpoints(cnpj);
+    }
+
+    function renderCnpjTable(filterText) {
+      const tbody = el('cnpj-table-body');
+      const filtered = !filterText ? allCnpjs : allCnpjs.filter(c =>
+        c.cnpj.includes(filterText) || c.razao_social.toLowerCase().includes(filterText.toLowerCase())
+      );
+      tbody.innerHTML = filtered.map(c => `
+        <tr data-cnpj="${c.cnpj}" class="${c.cnpj === selectedCnpj ? 'selected' : ''}">
+          <td><input type="radio" name="cnpj-radio" ${c.cnpj === selectedCnpj ? 'checked' : ''}></td>
+          <td>${c.cnpj}</td>
+          <td>${c.razao_social}</td>
+          <td><span class="status-pill ${statusClass(c.status)}">${statusLabel(c.status)}</span></td>
+        </tr>
+      `).join('');
+
+      tbody.querySelectorAll('tr').forEach(row => {
+        row.addEventListener('click', () => {
+          selectCnpj(row.getAttribute('data-cnpj'));
+        });
+      });
+    }
+
+    const STEP_LABELS = {
+      site_data_obtida: 'Dados do site obtidos',
+      business_manager_criado: 'Business Manager criado',
+      email_confirmado: 'E-mail do Business Manager confirmado',
+      pages_ok: 'Checagem de Pages OK',
+      dominio_adicionado: 'Domínio adicionado no Facebook',
+      meta_tag_aplicada: 'Meta-tag aplicada no Buildfy',
+      dominio_verificado: 'Domínio verificado',
+      business_info_preenchido: 'Business Info preenchido',
+      idioma_pt_br: 'Idioma definido (Português Brasil)',
+      whatsapp_categoria_preenchida: 'Categoria WhatsApp preenchida',
+      whatsapp_concluido: 'WhatsApp concluído (manual)',
+      verificacao_negocio_iniciada: 'Verificação de negócio iniciada',
+      concluido: 'Fluxo concluído',
+    };
+
+    // etapas que podem ser disparadas isoladamente (todas exceto "concluido",
+    // que é só um marcador final sem ação própria)
+    const RUNNABLE_STEPS = new Set(Object.keys(STEP_LABELS).filter(s => s !== 'concluido'));
+
+    async function loadCheckpoints(cnpj) {
+      if (!cnpj) {
+        el('checkpoint-card').style.display = 'none';
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/cnpj/${cnpj}/record`);
+        const data = await resp.json();
+        if (!data.ok) return;
+
+        el('checkpoint-card').style.display = 'block';
+        const doneSteps = new Set(data.record.steps_done || []);
+        const cpList = el('checkpoint-list');
+        cpList.innerHTML = data.all_steps.map(step => `
+          <div class="cp-row ${doneSteps.has(step) ? 'done' : ''}">
+            <input type="checkbox" data-step="${step}" ${doneSteps.has(step) ? 'checked' : ''}>
+            <label>${STEP_LABELS[step] || step}</label>
+            ${RUNNABLE_STEPS.has(step) ? `<button class="cp-run-btn" data-run-step="${step}">Rodar</button>` : ''}
+          </div>
+        `).join('');
+
+        cpList.querySelectorAll('[data-run-step]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const step = btn.getAttribute('data-run-step');
+            btn.disabled = true;
+            btn.textContent = '...';
+            const profileId = el('select-profile').value;
+            const resp = await fetch('/api/automation/run-step', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cnpj, step, profile_id: profileId }),
+            });
+            const result = await resp.json();
+            if (!result.ok) {
+              alert('Não foi possível iniciar: ' + (result.error || 'erro desconhecido'));
+              btn.disabled = false;
+              btn.textContent = 'Rodar';
+            }
+            poll();
+          });
+        });
+
+        const STEPS_REQUIRING_BUSINESS_ID = new Set([
+          'business_manager_criado', 'pages_ok', 'dominio_adicionado', 'meta_tag_aplicada',
+          'dominio_verificado', 'business_info_preenchido', 'whatsapp_categoria_preenchida',
+          'whatsapp_concluido',
+        ]);
+
+        cpList.querySelectorAll('input[type=checkbox]').forEach(cb => {
+          cb.addEventListener('change', async () => {
+            const step = cb.getAttribute('data-step');
+            if (cb.checked) {
+              const extraData = {};
+              const businessId = el('cp-business-id').value.trim();
+              const siteId = el('cp-site-id').value.trim();
+
+              const alreadyHasBusinessId = !!(data.record.data || {}).business_id;
+              if (STEPS_REQUIRING_BUSINESS_ID.has(step) && !businessId && !alreadyHasBusinessId) {
+                alert('Preencha o campo business_id antes de marcar esta etapa (ela depende dele).');
+                cb.checked = false;
+                return;
+              }
+
+              if (businessId) extraData.business_id = businessId;
+              if (siteId) extraData.site_id = siteId;
+              await fetch(`/api/cnpj/${cnpj}/checkpoint`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step, data: extraData }),
+              });
+            } else {
+              await fetch(`/api/cnpj/${cnpj}/unmark-step`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step }),
+              });
+            }
+            loadCheckpoints(cnpj);
+            loadCnpjs();
+          });
+        });
+
+        el('cp-business-id').value = (data.record.data || {}).business_id || '';
+        el('cp-site-id').value = (data.record.data || {}).site_id || '';
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadCnpjs() {
+      try {
+        const resp = await fetch('/api/cnpjs');
+        const data = await resp.json();
+        if (data.ok) {
+          allCnpjs = data.items;
+          renderCnpjTable(el('cnpj-search').value);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadProfiles() {
+      try {
+        const resp = await fetch('/api/adspower/profiles');
+        const data = await resp.json();
+        const select = el('select-profile');
+        if (data.ok) {
+          select.innerHTML = data.items.map(p =>
+            `<option value="${p.user_id}">${p.serial_number || ''} - ${p.name || p.user_id} (${p.group_name || ''})</option>`
+          ).join('');
+          if (select.value) selectCnpjForProfile(select.value);
+        } else {
+          select.innerHTML = `<option value="">Erro: ${data.error}</option>`;
+        }
+      } catch (err) {
+        el('select-profile').innerHTML = '<option value="">Erro ao carregar perfis</option>';
+      }
+    }
+
+    async function selectCnpjForProfile(profileId) {
+      if (!profileId) return;
+      try {
+        const resp = await fetch(`/api/profile/${profileId}/cnpj`);
+        const data = await resp.json();
+        if (data.ok && data.cnpj) {
+          selectCnpj(data.cnpj);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    el('select-profile').addEventListener('change', (e) => selectCnpjForProfile(e.target.value));
+
+    el('cnpj-search').addEventListener('input', (e) => renderCnpjTable(e.target.value));
+
+    el('btn-start').addEventListener('click', async () => {
+      el('btn-start').disabled = true;
+      const profileId = el('select-profile').value;
+      await fetch('/api/automation/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj: selectedCnpj, profile_id: profileId }),
+      });
+      poll();
+    });
+
+    el('btn-resume').addEventListener('click', async () => {
+      el('btn-resume').disabled = true;
+      await fetch('/api/automation/resume', { method: 'POST' });
+      el('btn-resume').disabled = false;
+    });
+
+    el('btn-pause').addEventListener('click', async () => {
+      el('btn-pause').disabled = true;
+      await fetch('/api/automation/pause', { method: 'POST' });
+    });
+
+    el('btn-close-browser').addEventListener('click', async () => {
+      el('btn-close-browser').disabled = true;
+      el('btn-close-browser').textContent = 'Fechando...';
+      const profileId = el('select-profile').value;
+      const resp = await fetch('/api/automation/close-browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_id: profileId }),
+      });
+      const result = await resp.json();
+      if (!result.ok) alert('Não foi possível fechar: ' + (result.error || 'erro desconhecido'));
+      el('btn-close-browser').disabled = false;
+      el('btn-close-browser').textContent = 'Fechar navegador';
+    });
+
+    el('btn-test').addEventListener('click', async () => {
+      const resultEl = el('test-result');
+      resultEl.textContent = 'Abrindo perfil...';
+      try {
+        const resp = await fetch('/api/test-open', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: '{{ pilot_profile_id }}' })
+        });
+        const data = await resp.json();
+        resultEl.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        resultEl.textContent = 'Erro: ' + err;
+      }
+    });
+
+    poll();
+    setInterval(poll, 2000);
+    loadCnpjs();
+    loadProfiles();
+    setInterval(loadCnpjs, 15000);
+  </script>
+</body>
+</html>

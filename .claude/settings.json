@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip install -r requirements.txt)",
+      "Bash(curl -s -m 5 \"http://local.adspower.net:50325/status\")",
+      "Bash(python -m app.web.server)",
+      "Bash(curl -s -m 5 http://127.0.0.1:5000/ -o /dev/null -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -m 60 -X POST http://127.0.0.1:5000/api/test-open -H \"Content-Type: application/json\" -d '{\"profile_id\":\"k1eqaqk4\"}')",
+      "Bash(python -m pip install python-dotenv==1.0.1 -q)",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -m 10 \"http://local.adspower.net:50325/api/v1/browser/start?user_id=k1eqaqk4&api_key=02ceee372bbf45d75d2b94d0c04e47fc00939bbcc8782cd7\")",
+      "Bash(curl -s -m 10 -H \"api-key: 02ceee372bbf45d75d2b94d0c04e47fc00939bbcc8782cd7\" \"http://local.adspower.net:50325/api/v1/browser/start?user_id=k1eqaqk4\")",
+      "Bash(curl -s -m 10 -H \"Authorization: 02ceee372bbf45d75d2b94d0c04e47fc00939bbcc8782cd7\" \"http://local.adspower.net:50325/api/v1/browser/start?user_id=k1eqaqk4\")",
+      "WebFetch(domain:localapi-doc-en.adspower.com)",
+      "Bash(curl -s -m 10 -H \"Authorization: Bearer 02ceee372bbf45d75d2b94d0c04e47fc00939bbcc8782cd7\" \"http://local.adspower.net:50325/api/v1/browser/start?user_id=k1eqaqk4\")",
+      "Bash(curl -s -m 10 -H \"Authorization: Bearer 02ceee372bbf45d75d2b94d0c04e47fc00939bbcc8782cd7\" \"http://local.adspower.net:50325/api/v1/browser/stop?user_id=k1eqaqk4\")",
+      "Bash(python scratch_inspect.py)"
+    ]
+  }
+}
