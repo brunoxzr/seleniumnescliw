@@ -1,2 +1,4 @@
 .env
 server.log
+__pycache__/
+*.pyc

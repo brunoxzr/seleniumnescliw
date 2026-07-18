@@ -10,6 +10,19 @@ from app.adspower.facebook_creds import get_facebook_credentials
 from .driver_utils import safe_url
 from .totp import get_totp_code
 
+_SET_VALUE_JS = """
+const el = arguments[0];
+const value = arguments[1];
+const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+nativeSetter.call(el, value);
+el.dispatchEvent(new Event('input', { bubbles: true }));
+el.dispatchEvent(new Event('change', { bubbles: true }));
+"""
+
+
+def _set_value(driver, element, value: str) -> None:
+    driver.execute_script(_SET_VALUE_JS, element, value)
+
 
 def _fill_totp_code_field(driver, totp_secret: str) -> str:
     """Preenche o campo de código 2FA (sem clicar em Continue) e retorna o código usado."""
@@ -264,12 +277,15 @@ def ensure_logged_in(driver, profile_id: str, on_manual_step=None) -> None:
 
         # aguarda o autofill do AdsPower estabilizar (digita devagar, letra por letra) —
         # exige valores NÃO VAZIOS antes de considerar estável, senão dois campos vazios
-        # "estabilizam" instantaneamente e o login segue sem credenciais reais
+        # "estabilizam" instantaneamente e o login segue sem credenciais reais.
+        # Janela mais curta que antes (14 tentativas ~5s) porque agora há um
+        # fallback: se o autofill não vier a tempo, preenchemos manualmente com
+        # as credenciais do remark em vez de travar o fluxo inteiro.
         last_email, last_pass = "", ""
         stable_count = 0
         stabilized = False
         navigated_away = False
-        for _ in range(40):
+        for _ in range(14):
             time.sleep(0.35)
             try:
                 email_val = email_field.get_attribute("value")
@@ -296,17 +312,22 @@ def ensure_logged_in(driver, profile_id: str, on_manual_step=None) -> None:
             else:
                 stable_count = 0
             last_email, last_pass = email_val, pass_val
-        else:
-            raise RuntimeError(
-                f"Autofill do AdsPower não preencheu usuário/senha a tempo para o perfil {profile_id}. "
-                "Verifique se as credenciais estão salvas corretamente no AdsPower."
-            )
 
         if not stabilized and not navigated_away:
-            raise RuntimeError(
-                f"Autofill do AdsPower não completou usuário/senha para o perfil {profile_id} "
-                "(campos ficaram vazios ou instáveis)."
-            )
+            # autofill do AdsPower não veio (ou não completou) a tempo — preenche
+            # manualmente com as credenciais já extraídas do remark em vez de
+            # travar o fluxo esperando algo que pode nunca vir.
+            _set_value(driver, email_field, creds.username)
+            _set_value(driver, pass_field, creds.password)
+            time.sleep(0.3)
+            email_val = email_field.get_attribute("value")
+            pass_val = pass_field.get_attribute("value")
+            if not email_val or not pass_val:
+                raise RuntimeError(
+                    f"Não foi possível preencher usuário/senha para o perfil {profile_id} "
+                    "(nem via autofill do AdsPower, nem manualmente com as credenciais do remark). "
+                    "Verifique se as credenciais estão salvas corretamente no AdsPower."
+                )
 
         if "two_factor" not in safe_url(driver):
             time.sleep(0.3)
