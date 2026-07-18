@@ -1,5 +1,6 @@
 import os
 import threading
+import time
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
@@ -170,12 +171,31 @@ def api_profile_cnpj(profile_id):
     return jsonify({"ok": True, "cnpj": tracker.get_cnpj_by_profile_id(profile_id)})
 
 
+_PROFILES_CACHE_TTL = 10.0  # segundos
+_profiles_cache_lock = threading.Lock()
+_profiles_cache: dict[str, object] = {"items": None, "error": None, "fetched_at": 0.0}
+
+
 @app.route("/api/adspower/profiles")
 def api_adspower_profiles():
-    try:
-        return jsonify({"ok": True, "items": list_profiles()})
-    except AdsPowerError as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
+    # a API local do AdsPower tem rate limit ("Too many request per second") e
+    # com 3 robôs cada um pollando o dashboard periodicamente as chamadas somam
+    # rápido — cacheia o resultado por alguns segundos e serve o mesmo pra todos
+    # os slots em vez de bater na API do AdsPower a cada requisição do frontend
+    with _profiles_cache_lock:
+        age = time.monotonic() - _profiles_cache["fetched_at"]
+        if age < _PROFILES_CACHE_TTL and (_profiles_cache["items"] is not None or _profiles_cache["error"]):
+            if _profiles_cache["error"]:
+                return jsonify({"ok": False, "error": _profiles_cache["error"]}), 400
+            return jsonify({"ok": True, "items": _profiles_cache["items"]})
+
+        try:
+            items = list_profiles()
+            _profiles_cache.update(items=items, error=None, fetched_at=time.monotonic())
+            return jsonify({"ok": True, "items": items})
+        except AdsPowerError as e:
+            _profiles_cache.update(items=None, error=str(e), fetched_at=time.monotonic())
+            return jsonify({"ok": False, "error": str(e)}), 400
 
 
 @app.route("/api/automation/status")
