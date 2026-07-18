@@ -145,24 +145,16 @@ def verify_domain(driver, business_id: str, domain: str, max_attempts: int = 3) 
 
     ensure_business_scope(driver, business_id)
     driver.get(domains_url(business_id))
+    time.sleep(3)  # espera fixa simples pra página carregar — sem heurística de texto
 
     def _is_verified() -> bool:
         # quando já verificado, o botão 'Verify domain' desaparece da tela — por
         # isso essa checagem precisa vir ANTES de tentar clicar, não só depois.
+        # checagem por "Not Verified" primeiro, porque essa string CONTÉM
+        # "Verified" como substring — teria que vir depois senão dá falso positivo.
         if driver.find_elements(By.XPATH, "//*[contains(text(),'Not Verified')]"):
             return False
         return bool(driver.find_elements(By.XPATH, "//*[contains(text(),'Verified')]"))
-
-    # espera ativa até o status (Verified/Not Verified) OU o botão de verificar
-    # aparecer no DOM — um sleep fixo curto podia checar antes da página
-    # terminar de carregar, dando falso negativo mesmo com o domínio já Verified
-    deadline = time.time() + 8
-    while time.time() < deadline:
-        if driver.find_elements(By.XPATH, "//*[contains(text(),'Verified')]"):
-            break
-        time.sleep(0.3)
-    else:
-        time.sleep(1)  # nada apareceu no timeout — segue mesmo assim, sem travar
 
     if _is_verified():
         return True

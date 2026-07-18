@@ -1,9 +1,14 @@
-"""Cliente para a AdsPower Local API (app precisa estar aberto)."""
+"""Cliente para a AdsPower Local API (app precisa estar aberto).
+
+A porta da Local API varia por instalação/PC (configurável dentro do app do
+AdsPower, em Configurações > Local API) — por padrão é 50325, mas pode ser
+outra. Defina ADSPOWER_API_PORT no .env se a porta local for diferente de 50325.
+"""
 import os
 
 import requests
 
-BASE_URL = "http://local.adspower.net:50325"
+BASE_URL = f"http://local.adspower.net:{os.environ.get('ADSPOWER_API_PORT', '50325')}"
 
 
 class AdsPowerError(Exception):
