@@ -171,7 +171,8 @@ def api_profile_cnpj(profile_id):
     return jsonify({"ok": True, "cnpj": tracker.get_cnpj_by_profile_id(profile_id)})
 
 
-_PROFILES_CACHE_TTL = 10.0  # segundos
+_PROFILES_CACHE_TTL = 30.0  # segundos — sucesso fica em cache por esse tempo
+_PROFILES_ERROR_RETRY_AFTER = 5.0  # segundos — erro (ex: rate limit) tenta de novo mais cedo
 _profiles_cache_lock = threading.Lock()
 _profiles_cache: dict[str, object] = {"items": None, "error": None, "fetched_at": 0.0}
 
@@ -180,11 +181,14 @@ _profiles_cache: dict[str, object] = {"items": None, "error": None, "fetched_at"
 def api_adspower_profiles():
     # a API local do AdsPower tem rate limit ("Too many request per second") e
     # com 3 robôs cada um pollando o dashboard periodicamente as chamadas somam
-    # rápido — cacheia o resultado por alguns segundos e serve o mesmo pra todos
-    # os slots em vez de bater na API do AdsPower a cada requisição do frontend
+    # rápido — cacheia o resultado e serve o mesmo pra todos os slots em vez de
+    # bater na API do AdsPower a cada requisição do frontend. O lock também
+    # serializa chamadas concorrentes: só uma de fato vai à rede por vez, as
+    # outras esperam e reaproveitam o resultado que acabou de chegar.
     with _profiles_cache_lock:
         age = time.monotonic() - _profiles_cache["fetched_at"]
-        if age < _PROFILES_CACHE_TTL and (_profiles_cache["items"] is not None or _profiles_cache["error"]):
+        ttl = _PROFILES_ERROR_RETRY_AFTER if _profiles_cache["error"] else _PROFILES_CACHE_TTL
+        if age < ttl and (_profiles_cache["items"] is not None or _profiles_cache["error"]):
             if _profiles_cache["error"]:
                 return jsonify({"ok": False, "error": _profiles_cache["error"]}), 400
             return jsonify({"ok": True, "items": _profiles_cache["items"]})
@@ -194,7 +198,7 @@ def api_adspower_profiles():
             _profiles_cache.update(items=items, error=None, fetched_at=time.monotonic())
             return jsonify({"ok": True, "items": items})
         except AdsPowerError as e:
-            _profiles_cache.update(items=None, error=str(e), fetched_at=time.monotonic())
+            _profiles_cache.update(error=str(e), fetched_at=time.monotonic())
             return jsonify({"ok": False, "error": str(e)}), 400
 
 

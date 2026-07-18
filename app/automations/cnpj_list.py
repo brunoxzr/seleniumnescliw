@@ -19,7 +19,7 @@ def list_cnpjs_with_status(limit: int = 200) -> list[dict]:
             if not cnpj:
                 continue
             record = tracker.get_record(cnpj)
-            status = record["status"] if record else "pendente"
+            status = record.get("status") or "pendente" if record else "pendente"
             rows.append({
                 "cnpj": cnpj,
                 "razao_social": (row.get("Razao Social") or "").strip(),
