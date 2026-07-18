@@ -105,6 +105,16 @@
     .window.open { display: flex; }
     .window.minimized { display: none; }
     .window.focused { border-color: var(--accent); box-shadow: 0 24px 70px rgba(0,0,0,0.6), 0 0 0 1px var(--accent); }
+    .window.maximized {
+      left: 0 !important;
+      top: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 0;
+    }
+    .window.maximized .window-resize-handle { display: none; }
     .window-titlebar {
       display: flex;
       align-items: center;
@@ -122,21 +132,44 @@
     .window-title-dot.manual { background: var(--manual); animation: pulse 1s infinite; }
     .window-title-text { font-size: 13px; font-weight: 700; flex: 1; }
     .window-title-sub { font-size: 11px; color: var(--muted); margin-right: 6px; }
+    /* botões de controle estilo macOS (bolinhas coloridas), à direita */
+    .window-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .window-btn {
-      width: 22px;
-      height: 22px;
-      border-radius: 6px;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1;
-      flex-shrink: 0;
+      border: none;
       cursor: pointer;
+      position: relative;
+      transition: filter 0.1s;
     }
-    .window-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
-    .window-btn.close:hover { background: rgba(239,68,68,0.25); color: var(--error); }
+    .window-btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.15);
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .window-btn:hover::before { opacity: 1; }
+    .window-btn:hover { filter: brightness(1.08); }
+    .window-btn.close { background: #ff5f57; }
+    .window-btn.minimize { background: #febc2e; }
+    .window-btn.maximize { background: #28c840; }
+    .window-btn-icon {
+      font-size: 8px;
+      line-height: 1;
+      color: rgba(0,0,0,0.55);
+      opacity: 0;
+      transition: opacity 0.1s;
+      position: relative;
+      pointer-events: none;
+    }
+    .window-controls:hover .window-btn-icon { opacity: 1; }
     .window-body { flex: 1; overflow-y: auto; padding: 20px; min-height: 0; }
 
     /* handle de redimensionar — arraste manual em JS (mais confiável entre
@@ -400,12 +433,15 @@
 
     {% for slot in slots %}
     <div class="window" id="panel-{{ slot }}" data-slot="{{ slot }}">
-      <div class="window-titlebar" onmousedown="startDrag(event, '{{ slot }}')">
+      <div class="window-titlebar" onmousedown="startDrag(event, '{{ slot }}')" ondblclick="maximizeWindow('{{ slot }}', event)">
         <div class="window-title-dot idle" id="win-dot-{{ slot }}"></div>
         <div class="window-title-text">Robô {{ slot }}</div>
         <div class="window-title-sub" id="win-sub-{{ slot }}"></div>
-        <div class="window-btn" title="Minimizar" onclick="minimizeWindow('{{ slot }}', event)">–</div>
-        <div class="window-btn close" title="Fechar" onclick="closeWindow('{{ slot }}', event)">✕</div>
+        <div class="window-controls">
+          <div class="window-btn maximize" title="Maximizar" onclick="maximizeWindow('{{ slot }}', event)"><span class="window-btn-icon">+</span></div>
+          <div class="window-btn minimize" title="Minimizar" onclick="minimizeWindow('{{ slot }}', event)"><span class="window-btn-icon">–</span></div>
+          <div class="window-btn close" title="Fechar" onclick="closeWindow('{{ slot }}', event)"><span class="window-btn-icon">✕</span></div>
+        </div>
       </div>
       <div class="window-body">
 
@@ -566,12 +602,42 @@
       updateDesktopEmptyState();
     }
 
+    // alterna entre maximizada (ocupa toda a área do desktop) e restaurada
+    // (volta pra posição/tamanho de antes de maximizar)
+    const preMaximizeRect = {};
+
+    function maximizeWindow(slot, ev) {
+      if (ev) ev.stopPropagation();
+      const win = windowEl(slot);
+      focusWindow(slot);
+
+      if (win.classList.contains('maximized')) {
+        win.classList.remove('maximized');
+        const prev = preMaximizeRect[slot];
+        if (prev) {
+          win.style.left = prev.left;
+          win.style.top = prev.top;
+          win.style.width = prev.width;
+          win.style.height = prev.height;
+        }
+      } else {
+        preMaximizeRect[slot] = {
+          left: win.style.left,
+          top: win.style.top,
+          width: win.style.width,
+          height: win.style.height,
+        };
+        win.classList.add('maximized');
+      }
+    }
+
     // ---- arrastar janela pela barra de título ----
     let dragState = null;
 
     function startDrag(ev, slot) {
-      // ignora clique nos botões de minimizar/fechar dentro da barra de título
-      if (ev.target.classList.contains('window-btn')) return;
+      // ignora clique nos botões de minimizar/fechar/maximizar (ou seus ícones) na barra de título
+      if (ev.target.closest('.window-controls')) return;
+      if (windowEl(slot).classList.contains('maximized')) return;
       focusWindow(slot);
       const win = windowEl(slot);
       const rect = win.getBoundingClientRect();
@@ -607,6 +673,7 @@
     let resizeState = null;
 
     function startResize(ev, slot) {
+      if (windowEl(slot).classList.contains('maximized')) return;
       ev.preventDefault();
       ev.stopPropagation();
       focusWindow(slot);
@@ -739,6 +806,11 @@
 
         renderLog(slot, data.entries);
         maybeCelebrate(slot, data.entries, data.current_cnpj);
+
+        // mantém os checkpoints do CNPJ selecionado em dia sem precisar F5
+        if (state[slot].selectedCnpj) {
+          loadCheckpoints(slot, state[slot].selectedCnpj);
+        }
       } catch (err) {
         console.error(err);
       }
@@ -919,10 +991,17 @@
         const data = await resp.json();
         const select = el(slot, 'select-profile');
         if (data.ok) {
+          // preserva a seleção atual ao atualizar a lista (evita resetar o
+          // dropdown pro topo a cada refresh automático)
+          const previousValue = select.value;
           select.innerHTML = data.items.map(p =>
             `<option value="${p.user_id}">${p.serial_number || ''} - ${p.name || p.user_id} (${p.group_name || ''})</option>`
           ).join('');
-          if (select.value) selectCnpjForProfile(slot, select.value);
+          if (previousValue && data.items.some(p => p.user_id === previousValue)) {
+            select.value = previousValue;
+          } else if (select.value) {
+            selectCnpjForProfile(slot, select.value);
+          }
         } else {
           select.innerHTML = `<option value="">Erro: ${data.error}</option>`;
         }
@@ -1024,6 +1103,7 @@
     setInterval(pollAll, 2000);
     loadCnpjs();
     setInterval(loadCnpjs, 15000);
+    setInterval(() => { for (const slot of SLOTS) loadProfiles(slot); }, 15000);
   </script>
 </body>
 </html>
