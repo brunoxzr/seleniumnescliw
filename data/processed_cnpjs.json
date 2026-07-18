@@ -256,5 +256,51 @@
     "profile_id": "k1erm249",
     "status": "dominio_verificado",
     "timestamp": "2026-07-18T18:23:33.284660+00:00"
+  },
+  "68077399000142": {
+    "steps_done": [
+      "site_data_obtida",
+      "business_manager_criado",
+      "email_confirmado",
+      "pages_ok",
+      "dominio_adicionado",
+      "meta_tag_aplicada",
+      "dominio_verificado"
+    ],
+    "data": {
+      "site_id": "2696",
+      "empresa": "68.077.399 Amanda Izabel de Fino",
+      "dominio": "amandaizabeldefino.businessbr.fit",
+      "url": "https://amandaizabeldefino.businessbr.fit/",
+      "logradouro": "Rua do Jacaranda, 405",
+      "complemento": "",
+      "bairro": "Embu",
+      "cidade": "Colombo",
+      "estado": "PR",
+      "cep": "83414-620",
+      "business_id": "2863377107353743",
+      "meta_code": "vlsm43rydszglw1ypk5129xjtocl5w"
+    },
+    "profile_id": "k1erq5u8",
+    "status": "dominio_verificado",
+    "timestamp": "2026-07-18T21:18:44.434592+00:00"
+  },
+  "68078098000133": {
+    "steps_done": [],
+    "data": {
+      "site_id": "2696",
+      "empresa": "68.077.399 Amanda Izabel de Fino",
+      "dominio": "amandaizabeldefino.businessbr.fit",
+      "url": "https://amandaizabeldefino.businessbr.fit/",
+      "logradouro": "Rua do Jacaranda, 405",
+      "complemento": "",
+      "bairro": "Embu",
+      "cidade": "Colombo",
+      "estado": "PR",
+      "cep": "83414-620"
+    },
+    "profile_id": "k1erq573",
+    "status": null,
+    "timestamp": "2026-07-18T21:15:32.890498+00:00"
   }
 }
