@@ -41,7 +41,31 @@ def _set_value(driver, element, value: str) -> None:
     driver.execute_script(SET_VALUE_JS, element, value)
 
 
-def ensure_logged_in(driver) -> None:
+def get_credentials_for_slot(slot: str | None) -> tuple[str, str]:
+    """Resolve email/senha do Buildfy para um robô específico (BUILDFY_EMAIL_A,
+    BUILDFY_EMAIL_B, ...), caindo para BUILDFY_EMAIL/BUILDFY_PASSWORD (conta
+    padrão, sem sufixo) se a variável específica do slot não estiver definida —
+    permite ter só uma conta configurada e ainda assim todos os robôs funcionarem."""
+    if slot:
+        email = os.environ.get(f"BUILDFY_EMAIL_{slot}")
+        password = os.environ.get(f"BUILDFY_PASSWORD_{slot}")
+        if email and password:
+            return email, password
+
+    email = os.environ.get("BUILDFY_EMAIL")
+    password = os.environ.get("BUILDFY_PASSWORD")
+    if not email or not password:
+        raise RuntimeError(
+            f"Nenhuma credencial do Buildfy configurada para o robô '{slot}' "
+            f"(defina BUILDFY_EMAIL_{slot}/BUILDFY_PASSWORD_{slot}, ou BUILDFY_EMAIL/"
+            "BUILDFY_PASSWORD como conta padrão, no .env)."
+        )
+    return email, password
+
+
+def ensure_logged_in(driver, slot: str | None = None) -> None:
+    email, password = get_credentials_for_slot(slot)
+
     driver.get(f"{BASE_URL}/login")
     time.sleep(1.5)
     if "/login" not in safe_url(driver):
@@ -49,10 +73,10 @@ def ensure_logged_in(driver) -> None:
 
     wait = WebDriverWait(driver, 15)
     email_field = wait.until(EC.presence_of_element_located((By.ID, "identifier")))
-    _set_value(driver, email_field, os.environ["BUILDFY_EMAIL"])
+    _set_value(driver, email_field, email)
 
     pwd_field = driver.find_element(By.ID, "password")
-    _set_value(driver, pwd_field, os.environ["BUILDFY_PASSWORD"])
+    _set_value(driver, pwd_field, password)
 
     submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type=submit]")
     driver.execute_script("arguments[0].click();", submit_btn)

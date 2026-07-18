@@ -413,7 +413,7 @@ def run_for_next_pending_cnpj(
     driver = open_driver(profile_id)
     try:
         ctx.log(f"Usando perfil AdsPower: {profile_id}")
-        ctx.run_step_with_fallback(lambda: buildfy.ensure_logged_in(driver), "Login no Buildfy")
+        ctx.run_step_with_fallback(lambda: buildfy.ensure_logged_in(driver, slot=slot), "Login no Buildfy")
         ctx.log("Login no Buildfy confirmado")
 
         picked = _pick_cnpj_and_site_id(ctx, driver, requested_cnpj)
