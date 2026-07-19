@@ -20,6 +20,18 @@ correspondente. Isso a torna idempotente — se uma etapa anterior falhar, pausa
 para o usuário resolver manualmente, e o orquestrador chamar a função de novo,
 ela não recomeça do zero: reconhece a tela atual (que pode já estar mais
 avançada por causa da intervenção manual) e continua dali.
+
+Clique: os botões dessa tela ("Iniciar verificação", "Começar", "Avançar") são
+divs role=button sem <button>/<a> nativo por baixo. Testado ao vivo: eventos de
+mouse SINTÉTICOS (element.dispatchEvent(new MouseEvent(...))) não disparam o
+handler de clique do React aqui (dispatchEvent gera isTrusted=false, e o
+listener parece exigir um evento confiável). Um clique de mouse REAL via
+Chrome DevTools Protocol (Input.dispatchMouseEvent, isTrusted=true) é a única
+forma que funcionou nos testes manuais — e funciona em ~50ms quando aplicado
+uma única vez. Reclicar no mesmo elemento antes do efeito do primeiro clique
+renderizar pode DESFAZER o próprio progresso (toggle do botão/modal), então
+aqui cada clique é feito uma única vez, seguido de uma espera fixa generosa —
+sem lógica de "confirmar e reclicar", que se mostrou instável.
 """
 import time
 
@@ -32,84 +44,111 @@ from .facebook_scope import ensure_business_scope
 from .facebook_whatsapp import whatsapp_url
 
 
-def _find_visible_by_text(driver, texts: list[str]):
-    for xpath_text in texts:
-        # contains(text(), ...) só olha nós de texto DIRETOS do elemento — se o
-        # texto estiver quebrado em spans filhos, não bate nada. contains(., ...)
-        # (todo o texto, incluindo descendentes) cobre esse caso também.
-        candidates = [
-            el for el in driver.find_elements(
-                By.XPATH, f"//*[contains(text(),'{xpath_text}') or contains(., '{xpath_text}')]"
-            )
-            if el.is_displayed()
-        ]
-        if candidates:
-            # prioriza o elemento mais interno (menos texto extra ao redor),
-            # que costuma ser o nó de texto real do botão
-            candidates.sort(key=lambda e: len(e.text or ""))
-            return candidates[0]
-    return None
-
-
-def _click_js(driver, element) -> None:
-    # .click() sintético simples não dispara handlers React ligados a
-    # mousedown/mouseup (em vez de onclick nativo) em vários componentes dessa
-    # tela — dispara a sequência completa de eventos de mouse, que o React
-    # reconhece como interação real de usuário.
-    driver.execute_script(
-        """
-        const el = arguments[0];
-        el.scrollIntoView({block: 'center'});
-        const rect = el.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-            el.dispatchEvent(new MouseEvent(type, {
-                bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
-            }));
-        }
-        """,
-        element,
-    )
-
-
-def _click_button_with_text(driver, texts: list[str], timeout: float = 8) -> None:
-    deadline = time.time() + timeout
-    last_error = None
-    while time.time() < deadline:
-        el = _find_visible_by_text(driver, texts)
-        if el is not None:
-            # o texto pode estar num nó filho; sobe até o botão/role=button/link mais próximo
-            btn = el.find_elements(
-                By.XPATH,
-                "./ancestor-or-self::div[@role='button'] | ./ancestor-or-self::button "
-                "| ./ancestor-or-self::a[@role='link' or @href]",
-            )
-            target = btn[0] if btn else el
-            try:
-                _click_js(driver, target)
-                return
-            except Exception as e:
-                last_error = e
-        time.sleep(0.3)
-    raise RuntimeError(f"Botão com texto {texts} não encontrado ou não clicável na tela ({last_error}).")
-
-
-def _click_radio_option(driver, label_texts: list[str]) -> bool:
-    option = _find_visible_by_text(driver, label_texts)
-    if option is None:
-        return False
-    radio_row = option.find_elements(By.XPATH, "./ancestor::div[.//input[@type='radio'] or @role='radio'][1]")
-    if radio_row:
-        radio = radio_row[0].find_elements(By.CSS_SELECTOR, "input[type='radio']")
-        _click_js(driver, radio[0] if radio else radio_row[0])
-    else:
-        _click_js(driver, option)
-    return True
+def _find_visible_by_text(driver, text: str):
+    """Primeiro elemento visível cujo texto (próprio ou de descendentes)
+    contém `text`, priorizando o nó mais interno (menos texto ao redor) —
+    tende a ser o rótulo real do botão, não um container maior que também
+    contém o mesmo texto em algum lugar dentro dele."""
+    candidates = [
+        el for el in driver.find_elements(By.XPATH, f"//*[contains(text(),'{text}') or contains(.,'{text}')]")
+        if el.is_displayed()
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda e: len(e.text or ""))
+    return candidates[0]
 
 
 def _is_visible_text(driver, text: str) -> bool:
-    return bool([el for el in driver.find_elements(By.XPATH, f"//*[contains(., '{text}')]") if el.is_displayed()])
+    return _find_visible_by_text(driver, text) is not None
+
+
+def _resolve_clickable(el):
+    """Sobe do nó de texto até o ancestral clicável mais próximo (div
+    role=button, <button> nativo, ou <a>). Se nenhum for encontrado, usa o
+    próprio nó de texto como alvo do clique."""
+    btn = el.find_elements(
+        By.XPATH,
+        "./ancestor-or-self::div[@role='button'] | ./ancestor-or-self::button "
+        "| ./ancestor-or-self::a[@role='link' or @href]",
+    )
+    return btn[0] if btn else el
+
+
+def _cdp_click(driver, element) -> None:
+    """Clique de mouse real via Chrome DevTools Protocol (ver docstring do módulo)."""
+    rect = driver.execute_script(
+        """
+        const el = arguments[0];
+        el.scrollIntoView({block: 'center', inline: 'center'});
+        const r = el.getBoundingClientRect();
+        return {left: r.left, top: r.top, width: r.width, height: r.height};
+        """,
+        element,
+    )
+    cx = rect["left"] + rect["width"] / 2
+    cy = rect["top"] + rect["height"] / 2
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": cx, "y": cy})
+    driver.execute_cdp_cmd(
+        "Input.dispatchMouseEvent",
+        {"type": "mousePressed", "x": cx, "y": cy, "button": "left", "clickCount": 1},
+    )
+    driver.execute_cdp_cmd(
+        "Input.dispatchMouseEvent",
+        {"type": "mouseReleased", "x": cx, "y": cy, "button": "left", "clickCount": 1},
+    )
+
+
+def _wait_page_settled(driver, timeout: float = 4.0) -> None:
+    """Espera document.readyState virar 'complete' e dá uma folga extra curta
+    depois disso. Diagnosticado ao vivo: um clique disparado logo após
+    navegar para uma página nova pode encontrar o texto do botão no HTML
+    (presente desde o primeiro paint) mas o handler de clique do React ainda
+    não foi anexado (a hidratação/montagem dos componentes interativos
+    acontece depois do primeiro paint) — o clique "não dá erro" mas não tem
+    efeito nenhum, porque bateu num elemento que ainda não está de fato
+    interativo. Esperar o carregamento assentar antes de clicar evita isso."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if driver.execute_script("return document.readyState;") == "complete":
+                break
+        except Exception:
+            pass
+        time.sleep(0.1)
+    time.sleep(0.5)  # folga extra: readyState 'complete' não garante que o React já hidratou
+
+
+def _click_text_once(driver, text: str, after: float = 1.0, settle_first: bool = False) -> bool:
+    """Encontra o elemento com `text`, clica nele UMA VEZ via CDP, espera
+    `after` segundos (tempo fixo para o efeito renderizar) e retorna se o
+    elemento foi encontrado. Não reclica, não confirma — a máquina de estados
+    do loop principal é quem decide, na PRÓXIMA iteração, se o clique teve
+    efeito (reconhecendo a tela seguinte) ou não (reconhecendo a mesma tela
+    de novo, e então é a própria iteração seguinte que tenta de novo).
+
+    `settle_first`: espera a página estabilizar (ver _wait_page_settled) antes
+    de clicar — usar quando esse clique pode acontecer logo após uma navegação
+    (driver.get) recente, onde o handler de clique real pode ainda não ter
+    sido anexado pelo React."""
+    if settle_first:
+        _wait_page_settled(driver)
+    el = _find_visible_by_text(driver, text)
+    if el is None:
+        return False
+    _cdp_click(driver, _resolve_clickable(el))
+    time.sleep(after)
+    return True
+
+
+def _click_radio_option(driver, label_text: str) -> bool:
+    option = _find_visible_by_text(driver, label_text)
+    if option is None:
+        return False
+    radio_row = option.find_elements(By.XPATH, "./ancestor::div[.//input[@type='radio'] or @role='radio'][1]")
+    target = radio_row[0].find_elements(By.CSS_SELECTOR, "input[type='radio']") if radio_row else []
+    _cdp_click(driver, target[0] if target else (radio_row[0] if radio_row else option))
+    return True
 
 
 def _url_has_security_settings(driver) -> bool:
@@ -120,69 +159,31 @@ def _url_has_security_settings(driver) -> bool:
 
 
 def open_verification_link(driver, business_id: str) -> bool:
-    """Clica no link 'Iniciar verificação' da tela de Contas do WhatsApp
-    (<a href="/settings/security/?business_id=X" target="_blank">). Tenta
-    múltiplas estratégias de clique em sequência, confirmando sucesso pela URL
-    de fato mudar para /settings/security — não apenas "o clique não lançou
-    exceção" (que não garante que o handler de navegação disparou).
+    """Navega para a Central de Segurança usando o href resolvido do link
+    'Iniciar verificação' da tela de Contas do WhatsApp
+    (<a href="/settings/security/?business_id=X" target="_blank">).
 
-    Retorna True se confirmou a navegação; False caso nenhuma estratégia tenha
-    funcionado (o chamador decide o que fazer — ex: navegar direto por URL).
-    """
+    Esse é um <a href> real — driver.get(href) é o método confiável para ele
+    (cliques sintéticos não navegam links reais; ver docstring do módulo).
+    Retorna True se a URL confirmou a navegação."""
     if _url_has_security_settings(driver):
         return True
 
-    verify_link = None
+    link = None
     deadline = time.time() + 15
     while time.time() < deadline:
-        links = [
-            el for el in driver.find_elements(By.CSS_SELECTOR, "a[href*='/settings/security/']")
-            if el.is_displayed()
-        ]
+        links = [el for el in driver.find_elements(By.CSS_SELECTOR, "a[href*='/settings/security/']") if el.is_displayed()]
         if links:
-            verify_link = links[0]
+            link = links[0]
             break
         time.sleep(0.3)
-
-    if verify_link is None:
+    if link is None:
         return False
 
-    windows_before = set(driver.window_handles)
-    href = verify_link.get_attribute("href") or ""
-
-    strategies = [
-        lambda el: driver.execute_script(
-            "arguments[0].removeAttribute('target'); arguments[0].click();", el
-        ),
-        lambda el: _click_js(driver, el),  # sequência completa de eventos de mouse
-        lambda el: driver.get(href.replace("http://", "https://") if href else driver.current_url),
-    ]
-
-    for strategy in strategies:
-        try:
-            strategy(verify_link)
-        except Exception:
-            pass
-        time.sleep(1.5)
-
-        # se abriu aba nova, troca o foco antes de checar a URL
-        new_windows = set(driver.window_handles) - windows_before
-        if new_windows:
-            driver.close()
-            driver.switch_to.window(new_windows.pop())
-
-        if _url_has_security_settings(driver):
-            return True
-
-        # elemento pode ter ficado stale entre tentativas — re-busca
-        fresh_links = [
-            el for el in driver.find_elements(By.CSS_SELECTOR, "a[href*='/settings/security/']")
-            if el.is_displayed()
-        ]
-        if fresh_links:
-            verify_link = fresh_links[0]
-
-    return False
+    href = link.get_attribute("href") or f"https://business.facebook.com/settings/security/?business_id={business_id}"
+    driver.get(href)
+    time.sleep(1.5)
+    return _url_has_security_settings(driver)
 
 
 def start_business_verification(driver, business_id: str, cnpj: str) -> None:
@@ -236,24 +237,60 @@ def _go_to_whatsapp_accounts(driver, business_id: str) -> None:
 
 
 def _run_verification_state_machine(driver, business_id: str, cnpj: str) -> None:
+    def _log(msg):
+        pass  # instrumentação de debug removida após diagnóstico concluído
+
     ensure_business_scope(driver, business_id)
     if _is_stuck_on_business_home(driver):
         _go_to_whatsapp_accounts(driver, business_id)
 
-    max_steps = 20
-    for _ in range(max_steps):
+    # Limite por TEMPO (não por número de iterações) — o wizard é
+    # copiloto: se o usuário interagir manualmente na tela a qualquer
+    # momento (resolver um captcha, avançar uma tela que a automação não
+    # reconheceu, fechar um popup), o loop absorve isso no próximo ciclo e
+    # continua sozinho, sem exigir clique de "Continuar" no dashboard. Um
+    # limite baseado em passos (usado antes) podia esgotar rápido demais
+    # em telas com erro técnico transitório do Facebook, mesmo o usuário
+    # estando pronto para ajudar — 6 minutos dão espaço de sobra tanto
+    # para retries automáticos quanto para intervenção manual.
+    deadline = time.time() + 360
+    _step_i = 0
+    while time.time() < deadline:
+        _step_i += 1
         # a home ('Boa tarde, ...') pode reaparecer no meio do loop também (ex:
         # depois de ensure_business_scope ser chamado de novo por outro motivo)
         if _is_stuck_on_business_home(driver):
             _go_to_whatsapp_accounts(driver, business_id)
             continue
+
+        # tela de erro técnico TEMPORÁRIO do próprio Facebook ("Ocorreu um
+        # erro / Há um problema técnico com esse recurso...") — descoberta ao
+        # vivo: às vezes o clique em "Iniciar verificação" abre esse modal de
+        # erro em vez do modal real "Verificar <nome>", sem nenhum botão
+        # "Começar" dentro dele. Sem essa checagem, o código ficava preso
+        # tentando reconhecer "Começar" pra sempre nessa tela (que nunca
+        # aparece ali). Fecha o modal de erro e deixa o loop tentar de novo —
+        # na prática costuma funcionar na segunda tentativa.
+        if _is_visible_text(driver, "Ocorreu um erro"):
+            _log(f"step {_step_i}: Facebook error dialog ('Ocorreu um erro') — closing and retrying")
+            close_btn = driver.find_elements(By.CSS_SELECTOR, "[role=dialog] [aria-label='Fechar'], [role=dialog] [aria-label='Close']")
+            if close_btn:
+                _cdp_click(driver, close_btn[0])
+            else:
+                driver.execute_script("document.activeElement.blur();")
+                from selenium.webdriver.common.keys import Keys
+                driver.switch_to.active_element.send_keys(Keys.ESCAPE)
+            time.sleep(1.5)
+            continue
+
         # modal "Verificar <nome>" -> Começar — checado com prioridade máxima,
         # antes de qualquer outra coisa. A descrição desse modal contém as
         # palavras "endereço", "telefone" e "site" na mesma frase, o que colide
         # com os marcadores usados para reconhecer outras telas mais abaixo.
         if _is_visible_text(driver, "Começar"):
-            _click_button_with_text(driver, ["Começar"], timeout=15)
-            time.sleep(1.5)
+            _log(f"step {_step_i}: recognized 'Começar' modal, clicking")
+            clicked = _click_text_once(driver, "Começar", after=1.5, settle_first=True)
+            _log(f"step {_step_i}: click Começar done (found_element={clicked})")
             continue
 
         # tela final: telefone/site (procura indício de que chegamos lá e paramos).
@@ -285,37 +322,32 @@ def _run_verification_state_machine(driver, business_id: str, cnpj: str) -> None
                 driver.execute_script("arguments[0].focus(); arguments[0].value='';", empty_inputs[0])
                 driver.execute_cdp_cmd("Input.insertText", {"text": cnpj})
                 time.sleep(0.5)
-            _click_button_with_text(driver, ["Avançar"])
-            time.sleep(1.2)
+            _click_text_once(driver, "Avançar", after=1.2)
             continue
 
         # "Sua empresa tem registro oficial?"
         if _is_visible_text(driver, "Tem registro"):
-            _click_radio_option(driver, ["Tem registro"])
+            _click_radio_option(driver, "Tem registro")
             time.sleep(0.6)
-            _click_button_with_text(driver, ["Avançar"])
-            time.sleep(1.2)
+            _click_text_once(driver, "Avançar", after=1.2)
             continue
 
         # tipo de empresa
         if _is_visible_text(driver, "Empresa individual"):
-            _click_radio_option(driver, ["Empresa individual"])
+            _click_radio_option(driver, "Empresa individual")
             time.sleep(0.6)
-            _click_button_with_text(driver, ["Avançar"])
-            time.sleep(1.2)
+            _click_text_once(driver, "Avançar", after=1.2)
             continue
 
         # país (já vem Brasil selecionado) — tela genérica "Avançar" sem os
         # marcadores acima; só avança se reconhecer o contexto do wizard
         if _is_visible_text(driver, "Selecionar um país") or _is_visible_text(driver, "País"):
-            _click_button_with_text(driver, ["Avançar"])
-            time.sleep(1.2)
+            _click_text_once(driver, "Avançar", after=1.2)
             continue
 
         # tela de endereço (já preenchida) — mesma lógica: reconhece pelo rótulo
         if _is_visible_text(driver, "Endereço") and _is_visible_text(driver, "Avançar"):
-            _click_button_with_text(driver, ["Avançar"])
-            time.sleep(1.2)
+            _click_text_once(driver, "Avançar", after=1.2)
             continue
 
         # fallback genérico: qualquer tela do wizard com um botão "Avançar"
@@ -323,41 +355,45 @@ def _run_verification_state_machine(driver, business_id: str, cnpj: str) -> None
         # ou pelo usuário manualmente) — clica pra seguir em frente, sem exigir
         # mais nenhum marcador de texto específico da tela.
         if _is_visible_text(driver, "Avançar"):
-            _click_button_with_text(driver, ["Avançar"])
-            time.sleep(1.2)
-            continue
-
-        # tela da Central de Segurança (destino do link clicado na tela
-        # anterior): tem um BOTÃO azul "Iniciar verificação" (diferente do link
-        # <a> da tela de Contas do WhatsApp) que abre o modal 'Verificar <nome>'.
-        # Sem essa checagem, o código nunca reconhecia essa tela e ficava indo
-        # e voltando pra tela de WhatsApp em loop infinito.
-        if _find_visible_by_text(driver, ["Iniciar verificação"]) is not None:
-            _click_button_with_text(driver, ["Iniciar verificação"], timeout=5)
-            time.sleep(2)
+            _click_text_once(driver, "Avançar", after=1.2)
             continue
 
         # se o link 'Iniciar verificação' está na tela (Contas do WhatsApp),
-        # clica nele. Não usar "Verificar" como marcador genérico aqui: a
-        # própria tela de Contas do WhatsApp contém as palavras "Verificação"/
-        # "verificado" na descrição, então esse texto sozinho não distingue
-        # "ainda não abri o link" de "já cliquei e nada mudou".
-        pending_verify_link = bool(driver.find_elements(By.CSS_SELECTOR, "a[href*='/settings/security/']"))
+        # clica nele. Checado ANTES do botão de mesmo texto da Central de
+        # Segurança logo abaixo — os dois têm o MESMO TEXTO ("Iniciar
+        # verificação"). Distinguir pelo elemento (link com href de
+        # /settings/security/), não pelo texto, resolve a ambiguidade — MAS só
+        # quando ainda NÃO estamos na Central de Segurança: um link com esse
+        # href pode continuar presente no DOM (menu, breadcrumb) mesmo depois
+        # de já termos chegado lá.
+        pending_verify_link = (
+            not _url_has_security_settings(driver)
+            and bool(driver.find_elements(By.CSS_SELECTOR, "a[href*='/settings/security/']"))
+        )
         if pending_verify_link:
+            _log(f"step {_step_i}: pending_verify_link, opening")
             navigated = open_verification_link(driver, business_id)
+            _log(f"step {_step_i}: open_verification_link done (navigated={navigated})")
             if not navigated:
-                # nenhuma estratégia de clique funcionou — navega direto pela
-                # URL como último recurso, garantidamente confiável
                 driver.get(f"https://business.facebook.com/settings/security/?business_id={business_id}")
                 time.sleep(2)
+            continue
+
+        # tela da Central de Segurança (destino do link clicado acima): tem um
+        # BOTÃO azul "Iniciar verificação" (role=button, não <a href>) que abre
+        # o modal 'Verificar <nome>'. Só chega aqui se a checagem do link acima
+        # não bateu, então não há ambiguidade entre os dois.
+        if _is_visible_text(driver, "Iniciar verificação"):
+            _log(f"step {_step_i}: recognized 'Iniciar verificação' button, clicking")
+            clicked = _click_text_once(driver, "Iniciar verificação", after=2.0, settle_first=True)
+            _log(f"step {_step_i}: click Iniciar verificação done (found_element={clicked})")
             continue
 
         # não estamos em nenhuma tela reconhecida do wizard nem na tela de
         # Contas do WhatsApp com o link disponível — navega pra lá de novo
         if not _is_visible_text(driver, "Verificar"):
+            _log(f"step {_step_i}: nothing recognized, no 'Verificar' text either -> go_to_whatsapp")
             _go_to_whatsapp_accounts(driver, business_id)
-            if _is_stuck_on_business_home(driver):
-                continue
             continue
 
         # estado não reconhecido — antes de desistir, dá mais uma chance: a
@@ -384,6 +420,6 @@ def _run_verification_state_machine(driver, business_id: str, cnpj: str) -> None
         raise RuntimeError("Tela do wizard de verificação de negócio não reconhecida.")
 
     raise RuntimeError(
-        "Wizard de verificação de negócio não chegou na tela de telefone/site após "
-        f"{max_steps} passos — verifique manualmente."
+        "Wizard de verificação de negócio não chegou na tela de telefone/site em 6 "
+        "minutos — verifique manualmente."
     )

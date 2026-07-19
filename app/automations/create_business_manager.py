@@ -43,6 +43,62 @@ def _cdp_fill(driver, element, text: str) -> None:
     time.sleep(0.3)
 
 
+def _cdp_click(driver, element) -> None:
+    """Clique de mouse real via Chrome DevTools Protocol — mais confiável que
+    clique sintético (execute_script .click()) para botões cujo handler React
+    exige um evento de mouse confiável (isTrusted=true)."""
+    rect = driver.execute_script(
+        """
+        const el = arguments[0];
+        el.scrollIntoView({block: 'center', inline: 'center'});
+        const r = el.getBoundingClientRect();
+        return {left: r.left, top: r.top, width: r.width, height: r.height};
+        """,
+        element,
+    )
+    cx = rect["left"] + rect["width"] / 2
+    cy = rect["top"] + rect["height"] / 2
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": cx, "y": cy})
+    driver.execute_cdp_cmd(
+        "Input.dispatchMouseEvent",
+        {"type": "mousePressed", "x": cx, "y": cy, "button": "left", "clickCount": 1},
+    )
+    driver.execute_cdp_cmd(
+        "Input.dispatchMouseEvent",
+        {"type": "mouseReleased", "x": cx, "y": cy, "button": "left", "clickCount": 1},
+    )
+
+
+def _click_submit_button(driver) -> bool:
+    """Encontra o botão 'Submit' do formulário de criação do Business Manager
+    e clica via CDP. Retorna True se encontrou e clicou."""
+    candidates = [
+        el for el in driver.find_elements(
+            By.XPATH, "//div[@role='button' or self::button][contains(.,'Submit')]"
+        )
+        if el.is_displayed()
+    ]
+    if not candidates:
+        return False
+    _cdp_click(driver, candidates[0])
+    return True
+
+
+def _click_done_button(driver) -> bool:
+    """Encontra o botão 'Done' da tela de confirmação (aparece depois do
+    Submit carregar) e clica via CDP. Retorna True se encontrou e clicou."""
+    candidates = [
+        el for el in driver.find_elements(
+            By.XPATH, "//div[@role='button' or self::button][contains(.,'Done')]"
+        )
+        if el.is_displayed()
+    ]
+    if not candidates:
+        return False
+    _cdp_click(driver, candidates[0])
+    return True
+
+
 def create_business_manager(
     driver, business_name: str, person_name: str, business_email: str, on_manual_step=None
 ) -> str:
@@ -105,14 +161,30 @@ def create_business_manager(
     _cdp_fill(driver, email_field, business_email)
     time.sleep(0.4)
 
-    if on_manual_step:
+    # clique automático via CDP (mouse real, isTrusted=true) — mais confiável
+    # que o clique sintético antigo, que se mostrava instável nesse botão.
+    # Tenta várias vezes (até ~20s no total) antes de recorrer à pausa manual —
+    # a criação do BM pode demorar mais que poucos segundos para redirecionar,
+    # e desistir cedo demais fazia pausar à toa mesmo quando o clique já tinha
+    # funcionado e só faltava a página terminar de processar.
+    for _attempt in range(4):
+        _click_submit_button(driver)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if "business_id=" in safe_url(driver):
+                break
+            time.sleep(0.3)
+        if "business_id=" in safe_url(driver):
+            break
+
+    if "business_id=" not in safe_url(driver) and on_manual_step:
         on_manual_step(
-            "Campos do Business Manager preenchidos. Clique em 'Submit' na tela do "
-            "Facebook e depois clique 'Continuar' aqui no dashboard."
+            "Campos do Business Manager preenchidos, mas o clique automático em 'Submit' "
+            "não confirmou. Clique em 'Submit' na tela do Facebook e depois clique "
+            "'Continuar' aqui no dashboard."
         )
-    else:
-        submit_btn = driver.find_element(By.XPATH, "//div[@role='button' or self::button][contains(., 'Submit')]")
-        driver.execute_script("arguments[0].click();", submit_btn)
+    elif "business_id=" not in safe_url(driver) and not on_manual_step:
+        _click_submit_button(driver)
 
     # a criação demora alguns segundos e redireciona para business_id na URL,
     # ou o Facebook rejeita com "Unable to Create Account" (nome já em uso)
@@ -139,6 +211,13 @@ def create_business_manager(
             f"encontrado na lista de portfólios pelo nome '{business_name}'. Verifique "
             "manualmente se ele foi criado antes de tentar de novo."
         )
+
+    # tela de confirmação "Portfólio criado!" pode ter um botão 'Done' pra
+    # fechar o modal — clica automaticamente (mesma técnica CDP), sem pausar
+    # pra isso: se não existir ou não confirmar, não é bloqueante (a URL já
+    # tem o business_id, o fluxo pode seguir mesmo com o modal ainda aberto).
+    if _click_done_button(driver):
+        time.sleep(1)
 
     url = safe_url(driver)
     business_id = url.split("business_id=")[1].split("&")[0]

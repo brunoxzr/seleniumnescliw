@@ -1,10 +1,12 @@
 """Controle local de progresso por CNPJ no fluxo Facebook Business, com checkpoints por etapa."""
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
 PROCESSED_FILE = os.path.join(DATA_DIR, "processed_cnpjs.json")
+CSV_HASH_FILE = os.path.join(DATA_DIR, "cnpjs_csv.hash")
 
 # ordem das etapas do fluxo — usada para saber onde retomar
 STEPS = [
@@ -114,3 +116,43 @@ def get_cnpj_by_profile_id(profile_id: str) -> str | None:
     pool = in_progress or matches
     pool.sort(key=lambda item: item[1].get("timestamp", ""), reverse=True)
     return pool[0][0]
+
+
+def reset_all() -> None:
+    """Apaga todo o progresso salvo — usado quando o cnpjs.csv muda (lista nova
+    de empresas, então o histórico antigo deixa de fazer sentido)."""
+    _save({})
+
+
+def _csv_content_hash(csv_path: str) -> str | None:
+    if not os.path.exists(csv_path):
+        return None
+    with open(csv_path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def sync_with_csv(csv_path: str) -> bool:
+    """Compara o conteúdo atual do cnpjs.csv com o hash salvo da última vez que
+    foi lido; se mudou (nova lista de CNPJs colada/substituída), reseta todo o
+    progresso salvo — evita misturar checkpoints de uma leva antiga de CNPJs
+    com uma nova. Retorna True se resetou."""
+    current_hash = _csv_content_hash(csv_path)
+    if current_hash is None:
+        return False
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    previous_hash = None
+    if os.path.exists(CSV_HASH_FILE):
+        with open(CSV_HASH_FILE, "r", encoding="utf-8") as f:
+            previous_hash = f.read().strip()
+
+    if previous_hash is not None and previous_hash != current_hash:
+        reset_all()
+        with open(CSV_HASH_FILE, "w", encoding="utf-8") as f:
+            f.write(current_hash)
+        return True
+
+    if previous_hash is None:
+        with open(CSV_HASH_FILE, "w", encoding="utf-8") as f:
+            f.write(current_hash)
+    return False

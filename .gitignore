@@ -2,3 +2,6 @@
 server.log
 __pycache__/
 *.pyc
+cnpjs.csv
+data/cnpjs_csv.hash
+data/telegram_chrome_profile/

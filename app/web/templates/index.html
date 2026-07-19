@@ -695,13 +695,15 @@
     let zCounter = 10;
 
     // cada robô tem seu próprio estado isolado (seleção de CNPJ, timestamp de
-    // celebração já mostrada) — a lista de CNPJs (allCnpjs) é compartilhada,
-    // já que vem do mesmo cnpjs.csv pros dois robôs.
+    // celebração já mostrada, e a própria lista de CNPJs disponíveis — cada
+    // robô vê uma lista diferente, já que CNPJs em uso por OUTROS robôs ou já
+    // processados por qualquer um deles ficam de fora)
     const state = {};
+    const cnpjsBySlot = {};
     for (const slot of SLOTS) {
       state[slot] = { selectedCnpj: null, lastCelebratedTimestamp: null };
+      cnpjsBySlot[slot] = [];
     }
-    let allCnpjs = [];
 
     function el(slot, name) {
       return document.querySelector(`#panel-${slot} [data-el="${name}"]`);
@@ -1006,7 +1008,8 @@
 
     function renderCnpjTable(slot, filterText) {
       const tbody = el(slot, 'cnpj-table-body');
-      const filtered = !filterText ? allCnpjs : allCnpjs.filter(c =>
+      const slotCnpjs = cnpjsBySlot[slot];
+      const filtered = !filterText ? slotCnpjs : slotCnpjs.filter(c =>
         c.cnpj.includes(filterText) || c.razao_social.toLowerCase().includes(filterText.toLowerCase())
       );
       const selected = state[slot].selectedCnpj;
@@ -1122,7 +1125,7 @@
               });
             }
             loadCheckpoints(slot, cnpj);
-            loadCnpjs();
+            loadCnpjsAllSlots();
           });
         });
 
@@ -1133,17 +1136,21 @@
       }
     }
 
-    async function loadCnpjs() {
+    async function loadCnpjs(slot) {
       try {
-        const resp = await fetch('/api/cnpjs');
+        const resp = await fetch(`/api/cnpjs?slot=${slot}`);
         const data = await resp.json();
         if (data.ok) {
-          allCnpjs = data.items;
-          for (const slot of SLOTS) renderCnpjTable(slot, el(slot, 'cnpj-search').value);
+          cnpjsBySlot[slot] = data.items;
+          renderCnpjTable(slot, el(slot, 'cnpj-search').value);
         }
       } catch (err) {
         console.error(err);
       }
+    }
+
+    function loadCnpjsAllSlots() {
+      for (const slot of SLOTS) loadCnpjs(slot);
     }
 
     async function loadProfiles(slot) {
@@ -1197,6 +1204,9 @@
           body: JSON.stringify({ cnpj: state[slot].selectedCnpj, profile_id: profileId, slot }),
         });
         pollSlot(slot);
+        // o CNPJ que este robô acabou de pegar precisa sumir da lista dos
+        // outros robôs imediatamente, sem esperar o próximo ciclo de 15s
+        loadCnpjsAllSlots();
       });
 
       el(slot, 'btn-resume').addEventListener('click', async () => {
@@ -1262,8 +1272,8 @@
 
     pollAll();
     setInterval(pollAll, 2000);
-    loadCnpjs();
-    setInterval(loadCnpjs, 15000);
+    loadCnpjsAllSlots();
+    setInterval(loadCnpjsAllSlots, 15000);
     setInterval(() => { for (const slot of SLOTS) loadProfiles(slot); }, 30000);
   </script>
 </body>
