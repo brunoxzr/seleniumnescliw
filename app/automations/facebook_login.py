@@ -24,6 +24,70 @@ def _set_value(driver, element, value: str) -> None:
     driver.execute_script(_SET_VALUE_JS, element, value)
 
 
+def _cdp_click(driver, element) -> None:
+    """Clique de mouse real via Chrome DevTools Protocol — mais confiável que
+    clique sintético (element.click() ou dispatchEvent) para elementos cujo
+    handler React exige um evento de mouse confiável (isTrusted=true).
+    Diagnosticado em outras telas do fluxo (verificação de negócio) onde
+    cliques sintéticos silenciosamente não tinham efeito nenhum."""
+    rect = driver.execute_script(
+        """
+        const el = arguments[0];
+        el.scrollIntoView({block: 'center', inline: 'center'});
+        const r = el.getBoundingClientRect();
+        return {left: r.left, top: r.top, width: r.width, height: r.height};
+        """,
+        element,
+    )
+    cx = rect["left"] + rect["width"] / 2
+    cy = rect["top"] + rect["height"] / 2
+    driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": cx, "y": cy})
+    driver.execute_cdp_cmd(
+        "Input.dispatchMouseEvent",
+        {"type": "mousePressed", "x": cx, "y": cy, "button": "left", "clickCount": 1},
+    )
+    driver.execute_cdp_cmd(
+        "Input.dispatchMouseEvent",
+        {"type": "mouseReleased", "x": cx, "y": cy, "button": "left", "clickCount": 1},
+    )
+
+
+def _click_continue_button(driver) -> bool:
+    """Tenta clicar no botão 'Continue' da tela de código 2FA via CDP. Retorna
+    True se encontrou e clicou, False se não achou o botão.
+
+    BUG anterior corrigido: a query usava //div[@role='button' or
+    @aria-label='Continue'], mas o "or" aplica só à condição @role='button'
+    sozinha — ou seja, casava com QUALQUER div[role='button'] da página
+    (inclusive o botão "X" de limpar o campo de código, que é role='button'
+    também), não exigia relação nenhuma com o texto "Continue". Isso fazia o
+    código clicar no botão errado, apagando o código já preenchido. Agora a
+    busca é estritamente por elemento com aria-label='Continue' OU que
+    contenha o texto 'Continue' de fato."""
+    candidates = [
+        el for el in driver.find_elements(
+            By.XPATH,
+            "//div[@role='button'][@aria-label='Continue'] "
+            "| //button[@aria-label='Continue'] "
+            "| //div[@role='button' or self::button][contains(.,'Continue')]",
+        )
+        if el.is_displayed()
+    ]
+    if not candidates:
+        text_nodes = [
+            el for el in driver.find_elements(By.XPATH, "//*[contains(text(),'Continue')]")
+            if el.is_displayed()
+        ]
+        if not text_nodes:
+            return False
+        btn = text_nodes[0].find_elements(
+            By.XPATH, "./ancestor-or-self::div[@role='button'] | ./ancestor-or-self::button"
+        )
+        candidates = [btn[0]] if btn else text_nodes[:1]
+    _cdp_click(driver, candidates[0])
+    return True
+
+
 def _fill_totp_code_field(driver, totp_secret: str) -> str:
     """Preenche o campo de código 2FA (sem clicar em Continue) e retorna o código usado."""
     code = get_totp_code(driver, totp_secret)
@@ -196,11 +260,35 @@ def _submit_totp_code(driver, totp_secret: str, on_manual_step=None) -> None:
             )
 
     _fill_totp_code_field(driver, totp_secret)
+    time.sleep(0.4)  # dá um instante pro React registrar o valor antes do clique
+
+    # clique automático via CDP (mouse real, isTrusted=true) — o clique
+    # sintético antigo era instável nesse botão específico, mas a técnica CDP
+    # se provou confiável em outras telas do fluxo (verificação de negócio).
+    # Se o clique não confirmar (ainda em two_factor após alguns segundos),
+    # cai no fallback de pausa manual em vez de travar o fluxo.
+    clicked = _click_continue_button(driver)
+    if clicked:
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            if "two_factor" not in safe_url(driver):
+                return
+            time.sleep(0.3)
+        # clique não confirmou — tenta mais uma vez antes de pedir ajuda manual
+        _click_continue_button(driver)
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            if "two_factor" not in safe_url(driver):
+                return
+            time.sleep(0.3)
+
+    if "two_factor" not in safe_url(driver):
+        return
 
     if on_manual_step:
         on_manual_step(
-            "Código 2FA preenchido. Clique em 'Continue' na tela do Facebook e depois "
-            "clique 'Continuar' aqui no dashboard."
+            "Código 2FA preenchido, mas o clique automático em 'Continue' não confirmou. "
+            "Clique em 'Continue' na tela do Facebook e depois clique 'Continuar' aqui no dashboard."
         )
     else:
         time.sleep(20)
