@@ -10,7 +10,20 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from .driver_utils import safe_url
 
-BASE_URL = "https://buildfyapp.vercel.app"
+def _normalize_base_url(url: str) -> str:
+    """Remove barra final e sufixos de rota comuns (ex: '/login' colado sem
+    querer ao copiar o link) — o resto do módulo monta as rotas por conta
+    própria (/login, /meus-sites, /sites/{id}, ...) a partir da raiz."""
+    url = url.rstrip("/")
+    for suffix in ("/login", "/meus-sites", "/criar"):
+        if url.endswith(suffix):
+            url = url[: -len(suffix)]
+    return url
+
+
+# o link da plataforma pode mudar (ex: novo deploy na Vercel) — configurável
+# via BUILDFY_BASE_URL no .env, com o link atual como padrão
+BASE_URL = _normalize_base_url(os.environ.get("BUILDFY_BASE_URL") or "https://buildfyapp.vercel.app")
 
 SET_VALUE_JS = """
 const el = arguments[0];
