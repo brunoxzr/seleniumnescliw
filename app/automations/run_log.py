@@ -93,3 +93,15 @@ def get_state(slot: str = DEFAULT_SLOT) -> dict:
 def list_slots() -> list[str]:
     with _lock:
         return sorted(_logs.keys()) or [DEFAULT_SLOT]
+
+
+def get_cnpjs_in_use(exclude_slot: str | None = None) -> set[str]:
+    """CNPJs que estão sendo processados agora em algum robô — usado para tirar
+    da lista de seleção dos OUTROS robôs enquanto a automação está rodando,
+    evitando dois robôs pegarem o mesmo CNPJ ao mesmo tempo."""
+    with _lock:
+        return {
+            log.current_cnpj
+            for slot, log in _logs.items()
+            if log.running and log.current_cnpj and slot != exclude_slot
+        }

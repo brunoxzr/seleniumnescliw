@@ -115,7 +115,10 @@ def automation_run_step():
 @app.route("/api/cnpjs")
 def api_cnpjs():
     try:
-        return jsonify({"ok": True, "items": cnpj_list.list_cnpjs_with_status()})
+        # exclui da lista os CNPJs sendo processados agora por OUTRO robô — o
+        # slot que está chamando continua vendo o que ele mesmo está rodando
+        items = cnpj_list.list_cnpjs_with_status(exclude_slot=_slot())
+        return jsonify({"ok": True, "items": items})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
