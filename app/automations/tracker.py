@@ -76,6 +76,17 @@ def save_checkpoint(cnpj: str, step: str, data: dict | None = None) -> None:
     _save(all_data)
 
 
+def save_data(cnpj: str, data: dict) -> None:
+    """Atualiza apenas o campo `data` do registro (ex: telegram_sms_id), sem
+    marcar nenhuma etapa como concluída — usado para guardar informação
+    auxiliar coletada no meio de uma etapa ainda em andamento."""
+    all_data = _load()
+    record = all_data.get(cnpj, {"steps_done": [], "data": {}})
+    record["data"].update(data)
+    all_data[cnpj] = record
+    _save(all_data)
+
+
 def mark_processed(cnpj: str, status: str, details: str = "") -> None:
     """Compatibilidade: marca status final (ex: 'concluido', 'abortado')."""
     all_data = _load()

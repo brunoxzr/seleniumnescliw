@@ -636,6 +636,16 @@
 
       <div class="card" data-el="checkpoint-card" style="display:none;">
         <h2>Etapas do CNPJ selecionado</h2>
+
+        <div data-el="telegram-info" style="display:none; background: rgba(59,130,246,0.08); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px;">
+          <strong>Número virtual (Telegram):</strong>
+          <span data-el="telegram-phone"></span>
+          <span style="color: var(--muted);"> — ID no bot: </span><strong data-el="telegram-sms-id"></strong>
+          <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
+            Procure esse ID no chat "Número virtual - Receber SMS" para conferir o código SMS quando chegar.
+          </div>
+        </div>
+
         <div data-el="checkpoint-list" style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;"></div>
 
         <div style="display:flex; gap:8px; margin-bottom:8px;">
@@ -1131,6 +1141,17 @@
 
         el(slot, 'cp-business-id').value = (data.record.data || {}).business_id || '';
         el(slot, 'cp-site-id').value = (data.record.data || {}).site_id || '';
+
+        const telegramSmsId = (data.record.data || {}).telegram_sms_id;
+        const telegramPhone = (data.record.data || {}).telegram_phone;
+        const telegramInfo = el(slot, 'telegram-info');
+        if (telegramSmsId) {
+          telegramInfo.style.display = 'block';
+          el(slot, 'telegram-phone').textContent = telegramPhone || '(sem número)';
+          el(slot, 'telegram-sms-id').textContent = telegramSmsId;
+        } else {
+          telegramInfo.style.display = 'none';
+        }
       } catch (err) {
         console.error(err);
       }

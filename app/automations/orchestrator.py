@@ -28,6 +28,7 @@ from . import (
 from .buildfy_email import confirm_business_email
 from .create_business_manager import create_business_manager
 from . import pause as pause_module
+from . import telegram_driver, telegram_sms
 
 DEFAULT_PROFILE = "k1eqapx8"
 SLOTS = ["A", "B", "C"]
@@ -88,6 +89,28 @@ class _Ctx:
 def _strip_cnpj_prefix(empresa: str) -> str:
     """Remove o prefixo de CNPJ formatado (ex: '68.078.890 ') do nome da empresa."""
     return re.sub(r"^\d{2}\.\d{3}\.\d{3}\s+", "", empresa).strip()
+
+
+def _generate_telegram_phone(ctx: _Ctx, cnpj: str) -> tuple[str, str] | None:
+    """Gera um número virtual via bot do Telegram para usar no telefone
+    comercial do Facebook. Retorna (sms_id, phone) ou None se falhar — a
+    geração automática é um atalho, não um requisito: se o Telegram falhar
+    por qualquer motivo (bot fora do ar, sessão expirada, saldo insuficiente),
+    o usuário ainda pode preencher o telefone manualmente na pausa seguinte,
+    então o erro é logado mas não interrompe o fluxo.
+
+    A leitura do código SMS que chega depois é manual por decisão do usuário
+    — o dashboard mostra o sms_id salvo para localizar o bloco certo no chat."""
+    try:
+        driver = telegram_driver.open_telegram_driver()
+        telegram_sms.open_bot_chat(driver)
+        sms_id, phone = telegram_sms.generate_number(driver, service="Facebook")
+        tracker.save_data(cnpj, {"telegram_sms_id": sms_id, "telegram_phone": phone})
+        ctx.log(f"Número virtual gerado via Telegram: {phone} (ID: {sms_id})")
+        return sms_id, phone
+    except Exception as e:
+        ctx.log(f"Não foi possível gerar número via Telegram automaticamente: {e}", level="warning")
+        return None
 
 
 def _pick_cnpj_and_site_id(ctx: _Ctx, driver, requested_cnpj: str | None) -> tuple[str, str] | None:
@@ -271,8 +294,16 @@ def _step_business_info(ctx: _Ctx, driver, profile_id: str, cnpj: str, saved: di
     )
     ctx.log("Campos de Business Info preenchidos (exceto telefone)")
 
-    ctx.log("Preencha o número de telefone comercial na tela do Business Info e clique Continuar.",
-            level="manual")
+    generated = _generate_telegram_phone(ctx, cnpj)
+    phone_msg = (
+        f" Número gerado via Telegram: {generated[1]} (ID: {generated[0]})."
+        if generated else " Gere um número manualmente se a automação do Telegram falhou."
+    )
+    ctx.log(
+        "Preencha o número de telefone comercial na tela do Business Info e clique Continuar."
+        + phone_msg,
+        level="manual",
+    )
     ctx.wait_manual("Preencher Business phone number no Facebook")
     ctx.log("Confirmado: telefone preenchido manualmente")
 
@@ -600,8 +631,16 @@ def run_for_next_pending_cnpj(
             ctx.run_step_with_fallback(_fill_business_info, "Preencher Business Info")
             ctx.log("Campos de Business Info preenchidos (exceto telefone)")
 
-            ctx.log("Preencha o número de telefone comercial na tela do Business Info e clique Continuar.",
-                    level="manual")
+            generated = _generate_telegram_phone(ctx, cnpj)
+            phone_msg = (
+                f" Número gerado via Telegram: {generated[1]} (ID: {generated[0]})."
+                if generated else " Gere um número manualmente se a automação do Telegram falhou."
+            )
+            ctx.log(
+                "Preencha o número de telefone comercial na tela do Business Info e clique Continuar."
+                + phone_msg,
+                level="manual",
+            )
             ctx.wait_manual("Preencher Business phone number no Facebook")
             ctx.log("Confirmado: telefone preenchido manualmente")
 
