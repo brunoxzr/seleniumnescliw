@@ -163,17 +163,19 @@ def create_business_manager(
 
     # clique automático via CDP (mouse real, isTrusted=true) — mais confiável
     # que o clique sintético antigo, que se mostrava instável nesse botão.
-    # Se não confirmar (URL não mudou pra business_id em alguns segundos),
-    # cai no fallback de pausa manual em vez de travar o fluxo.
-    clicked = _click_submit_button(driver)
-    if clicked:
-        deadline = time.time() + 6
+    # Tenta várias vezes (até ~20s no total) antes de recorrer à pausa manual —
+    # a criação do BM pode demorar mais que poucos segundos para redirecionar,
+    # e desistir cedo demais fazia pausar à toa mesmo quando o clique já tinha
+    # funcionado e só faltava a página terminar de processar.
+    for _attempt in range(4):
+        _click_submit_button(driver)
+        deadline = time.time() + 5
         while time.time() < deadline:
             if "business_id=" in safe_url(driver):
                 break
             time.sleep(0.3)
-        else:
-            _click_submit_button(driver)  # tenta mais uma vez antes de pedir ajuda
+        if "business_id=" in safe_url(driver):
+            break
 
     if "business_id=" not in safe_url(driver) and on_manual_step:
         on_manual_step(

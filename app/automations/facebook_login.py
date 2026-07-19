@@ -191,11 +191,10 @@ def _is_captcha_screen(driver) -> bool:
 
 
 def _submit_totp_code(driver, totp_secret: str, on_manual_step=None) -> None:
-    """Preenche o código TOTP e pede para o usuário clicar em Continue manualmente
-    pelo dashboard — o clique automatizado nesse botão específico do Facebook se
-    mostrou instável demais (elemento coberto/interceptado de forma intermitente),
-    então preferimos automatizar só o preenchimento e deixar a confirmação final
-    (e qualquer resolução de erro na tela) nas mãos do usuário.
+    """Preenche o código TOTP e clica em Continue automaticamente (via CDP —
+    ver _click_continue_button). Só recorre à pausa manual no dashboard como
+    último recurso, se várias tentativas de clique não confirmarem a saída da
+    tela de código.
 
     on_manual_step(message): callback que bloqueia até o usuário confirmar pelo
     dashboard (ex: pause.wait_for_manual_step). Se None, faz um sleep fixo — usado
@@ -265,24 +264,29 @@ def _submit_totp_code(driver, totp_secret: str, on_manual_step=None) -> None:
     # clique automático via CDP (mouse real, isTrusted=true) — o clique
     # sintético antigo era instável nesse botão específico, mas a técnica CDP
     # se provou confiável em outras telas do fluxo (verificação de negócio).
-    # Se o clique não confirmar (ainda em two_factor após alguns segundos),
-    # cai no fallback de pausa manual em vez de travar o fluxo.
-    clicked = _click_continue_button(driver)
-    if clicked:
-        deadline = time.time() + 6
-        while time.time() < deadline:
-            if "two_factor" not in safe_url(driver):
-                return
-            time.sleep(0.3)
-        # clique não confirmou — tenta mais uma vez antes de pedir ajuda manual
+    #
+    # BUG corrigido: a checagem de sucesso usava só "two_factor" not in url,
+    # mas depois do código confirmado o Facebook costuma redirecionar para
+    # 'two_factor/remember_browser' (tela "confiar neste navegador?"), que
+    # AINDA contém "two_factor" na URL — a checagem simplista sempre achava
+    # que o clique tinha falhado mesmo quando funcionou de verdade, e pausava
+    # pedindo confirmação manual à toa em praticamente todo login. Usa a
+    # mesma lógica (mais precisa) do final da função: só considera "ainda
+    # precisa de código" quando é o FORMULÁRIO de código mesmo, não a tela
+    # de pós-confirmação.
+    def _still_needs_code() -> bool:
+        url = safe_url(driver)
+        return "two_factor/two_factor" in url or ("two_factor" in url and "remember_browser" not in url)
+
+    for _attempt in range(4):
         _click_continue_button(driver)
-        deadline = time.time() + 6
+        deadline = time.time() + 5
         while time.time() < deadline:
-            if "two_factor" not in safe_url(driver):
+            if not _still_needs_code():
                 return
             time.sleep(0.3)
 
-    if "two_factor" not in safe_url(driver):
+    if not _still_needs_code():
         return
 
     if on_manual_step:
@@ -295,7 +299,7 @@ def _submit_totp_code(driver, totp_secret: str, on_manual_step=None) -> None:
 
     deadline = time.time() + 10
     while time.time() < deadline:
-        if "two_factor" not in safe_url(driver):
+        if not _still_needs_code():
             return
         time.sleep(1)
     # não força erro aqui — se o usuário confirmou mas a tela ainda mostra a URL
@@ -444,13 +448,15 @@ def ensure_logged_in(driver, profile_id: str, on_manual_step=None) -> None:
     # lembrar o navegador; escolhe "Always confirm it's me" para não persistir
     # confiança no perfil. Esta tela contém "two_factor" na URL mas NÃO significa que
     # o 2FA ainda está pendente — é um passo pós-autenticação, então é tratada à parte
-    # da checagem final de "login não concluído"
+    # da checagem final de "login não concluído". Clique via CDP (mouse real):
+    # o clique sintético (execute_script) usado aqui antes podia não confirmar,
+    # deixando a automação presa nessa tela até a pausa manual do dashboard.
     if "two_factor/remember_browser" in safe_url(driver):
         try:
             confirm_btn = driver.find_element(
                 By.XPATH, "//div[@role='button' or self::button][contains(., \"Always confirm\")]"
             )
-            driver.execute_script("arguments[0].click();", confirm_btn)
+            _cdp_click(driver, confirm_btn)
             time.sleep(2)
         except Exception:
             pass
