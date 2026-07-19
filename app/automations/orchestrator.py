@@ -295,12 +295,18 @@ def _step_business_info(ctx: _Ctx, driver, profile_id: str, cnpj: str, saved: di
     ctx.log("Campos de Business Info preenchidos (exceto telefone)")
 
     generated = _generate_telegram_phone(ctx, cnpj)
-    phone_msg = (
-        f" Número gerado via Telegram: {generated[1]} (ID: {generated[0]})."
-        if generated else " Gere um número manualmente se a automação do Telegram falhou."
-    )
+    if generated:
+        sms_id, phone = generated
+        facebook_business_info.fill_business_phone(driver, phone)
+        ctx.log(f"Telefone preenchido automaticamente: {phone} (ID Telegram: {sms_id})")
+        phone_msg = (
+            f" Telefone {phone} já preenchido (ID Telegram: {sms_id}) — confira o campo e "
+            "clique Continuar."
+        )
+    else:
+        phone_msg = " Gere um número manualmente (automação do Telegram falhou) e preencha o campo."
     ctx.log(
-        "Preencha o número de telefone comercial na tela do Business Info e clique Continuar."
+        "Preencha/confira o número de telefone comercial na tela do Business Info e clique Continuar."
         + phone_msg,
         level="manual",
     )
@@ -632,12 +638,18 @@ def run_for_next_pending_cnpj(
             ctx.log("Campos de Business Info preenchidos (exceto telefone)")
 
             generated = _generate_telegram_phone(ctx, cnpj)
-            phone_msg = (
-                f" Número gerado via Telegram: {generated[1]} (ID: {generated[0]})."
-                if generated else " Gere um número manualmente se a automação do Telegram falhou."
-            )
+            if generated:
+                sms_id, phone = generated
+                facebook_business_info.fill_business_phone(driver, phone)
+                ctx.log(f"Telefone preenchido automaticamente: {phone} (ID Telegram: {sms_id})")
+                phone_msg = (
+                    f" Telefone {phone} já preenchido (ID Telegram: {sms_id}) — confira o campo e "
+                    "clique Continuar."
+                )
+            else:
+                phone_msg = " Gere um número manualmente (automação do Telegram falhou) e preencha o campo."
             ctx.log(
-                "Preencha o número de telefone comercial na tela do Business Info e clique Continuar."
+                "Preencha/confira o número de telefone comercial na tela do Business Info e clique Continuar."
                 + phone_msg,
                 level="manual",
             )

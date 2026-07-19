@@ -110,6 +110,14 @@ def get_phone_field(driver):
     return _field_by_label(driver, "Business phone")
 
 
+def fill_business_phone(driver, phone_without_ddi: str) -> None:
+    """Preenche o campo 'Business phone number' com um telefone brasileiro
+    (sem DDI, ex: 11977411205). O campo já vem com o seletor de país fixo em
+    Brasil (+55) por padrão nessa tela, então só o número local é digitado."""
+    field = get_phone_field(driver)
+    _cdp_fill(driver, field, phone_without_ddi)
+
+
 def submit_business_details(driver) -> None:
     # pequeno retry: o modal pode demorar a re-renderizar logo após a pausa manual
     # (usuário confirmando o telefone), então uma checagem única e imediata é
