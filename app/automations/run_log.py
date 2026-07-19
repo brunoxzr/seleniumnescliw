@@ -29,12 +29,25 @@ def _get(slot: str) -> RunLog:
     return _logs[slot]
 
 
+def begin(slot: str = DEFAULT_SLOT) -> None:
+    """Marca o robô como rodando ANTES de saber qual CNPJ será processado —
+    cobre erros que acontecem antes disso (abrir o driver do AdsPower, login
+    no Buildfy) para que apareçam no log em vez de desaparecer silenciosamente
+    (a exceção subia direto pro caller, que só sabe logar via start_run/
+    finish_run, e start_run só era chamado depois de escolher o CNPJ)."""
+    with _lock:
+        log = _get(slot)
+        log.running = True
+        log.current_cnpj = ""
+        log.entries = []
+        log.pause_requested = False
+
+
 def start_run(cnpj: str, slot: str = DEFAULT_SLOT) -> None:
     with _lock:
         log = _get(slot)
         log.running = True
         log.current_cnpj = cnpj
-        log.entries = []
         log.pause_requested = False
 
 

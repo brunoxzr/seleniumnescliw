@@ -46,6 +46,9 @@ class _Ctx:
     def check_pause(self) -> None:
         run_log.check_pause(self.slot)
 
+    def begin(self) -> None:
+        run_log.begin(slot=self.slot)
+
     def start_run(self, cnpj: str) -> None:
         run_log.start_run(cnpj, slot=self.slot)
 
@@ -410,7 +413,13 @@ def run_for_next_pending_cnpj(
 ) -> dict:
     ctx = _Ctx(slot)
     profile_id = profile_id or DEFAULT_PROFILE
-    driver = open_driver(profile_id)
+    ctx.begin()
+    try:
+        driver = open_driver(profile_id)
+    except Exception as e:
+        ctx.finish_run(False, f"Erro ao abrir perfil AdsPower '{profile_id}': {e}")
+        raise
+
     try:
         ctx.log(f"Usando perfil AdsPower: {profile_id}")
         ctx.run_step_with_fallback(lambda: buildfy.ensure_logged_in(driver, slot=slot), "Login no Buildfy")
