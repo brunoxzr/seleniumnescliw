@@ -8,6 +8,7 @@ data/telegram_chrome_profile/
 
 # build do executável (gerado por PyInstaller — refaça com o .spec)
 build/
+.build_backup/
 
 # dados/config editáveis do executável — não versionar (contêm segredos e dados reais)
 prod/MavioRobot/.env

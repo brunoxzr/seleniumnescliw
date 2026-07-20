@@ -701,7 +701,12 @@
     const state = {};
     const cnpjsBySlot = {};
     for (const slot of SLOTS) {
-      state[slot] = { selectedCnpj: null, lastCelebratedTimestamp: null };
+      state[slot] = {
+        selectedCnpj: null,
+        lastCelebratedTimestamp: null,
+        lastNotifiedTimestamp: null,
+        notifyInitialized: false,
+      };
       cnpjsBySlot[slot] = [];
     }
 
@@ -904,6 +909,31 @@
       }
     }
 
+    const NOTIFICATION_SOUND_SECONDS = 3;
+
+    function playNotificationSound() {
+      const audio = new Audio('/static/notificacao.mp3');
+      audio.addEventListener('timeupdate', () => {
+        if (audio.currentTime >= NOTIFICATION_SOUND_SECONDS) audio.pause();
+      });
+      audio.play().catch(() => {}); // navegador pode bloquear autoplay sem interação prévia
+    }
+
+    function maybeNotifyStepDone(slot, entries) {
+      const win = [...entries].reverse().find(e => e.level === 'success');
+      // no primeiro poll (recarregou a página com um log já existente), só
+      // memoriza o último success sem tocar — o som é só para etapas que
+      // terminam A PARTIR DE AGORA, não retroativo ao que já estava no log.
+      if (!state[slot].notifyInitialized) {
+        state[slot].notifyInitialized = true;
+        state[slot].lastNotifiedTimestamp = win ? win.timestamp : null;
+        return;
+      }
+      if (!win || win.timestamp === state[slot].lastNotifiedTimestamp) return;
+      state[slot].lastNotifiedTimestamp = win.timestamp;
+      playNotificationSound();
+    }
+
     function maybeCelebrate(slot, entries, cnpj) {
       const win = [...entries].reverse().find(e =>
         e.level === 'success' && e.message.includes('Etapa automatizável concluída')
@@ -968,6 +998,7 @@
         if (winSub) winSub.textContent = subText;
 
         renderLog(slot, data.entries);
+        maybeNotifyStepDone(slot, data.entries);
         maybeCelebrate(slot, data.entries, data.current_cnpj);
 
         // mantém os checkpoints do CNPJ selecionado em dia sem precisar F5

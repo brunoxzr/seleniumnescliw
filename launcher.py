@@ -5,14 +5,14 @@ A janela mostra os logs do servidor; fechá-la (X ou Ctrl+C) encerra o robô.
 Usa um mutex nomeado do Windows para garantir uma única instância: se o app
 já estiver rodando (ex: usuário clicou duas vezes no .exe), a segunda cópia
 só abre o navegador na instância existente e encerra — evita duas instâncias
-disputando a porta 5050 e travando o dashboard."""
+disputando a porta e travando o dashboard."""
 import ctypes
 import sys
 import threading
 import time
 import webbrowser
 
-PORT = 5050
+PORT = 5051
 _MUTEX_NAME = "Global\\MavioRobotSingleInstanceMutex"
 
 

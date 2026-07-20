@@ -114,7 +114,7 @@ def _pick_cnpj_and_site_id(ctx: _Ctx, driver, requested_cnpj: str | None) -> tup
         # CNPJ ainda não tem site — cria um novo no Buildfy (consome 1 crédito)
         ctx.log(f"CNPJ {requested_cnpj} não tem site no Buildfy — criando um novo...")
         site_id = buildfy.create_site_from_cnpj(driver, requested_cnpj)
-        ctx.log(f"Site criado no Buildfy (site_id={site_id})")
+        ctx.log(f"Site criado no Buildfy (site_id={site_id})", level="success")
         return requested_cnpj, site_id
 
     in_progress_cnpj = tracker.get_in_progress_cnpj()
@@ -180,7 +180,7 @@ def _step_business_manager(ctx: _Ctx, driver, profile_id: str, cnpj: str, saved:
     business_id = create_business_manager(
         driver, business_name, business_name, business_email, on_manual_step=_bm_manual_step
     )
-    ctx.log(f"Business Manager criado: {business_id}")
+    ctx.log(f"Business Manager criado: {business_id}", level="success")
     tracker.save_checkpoint(cnpj, "business_manager_criado", {"business_id": business_id})
 
 
@@ -196,7 +196,7 @@ def _step_confirm_email(ctx: _Ctx, driver, profile_id: str, cnpj: str, site_id: 
             f"Aviso: business_id do e-mail ({email_business_id}) difere do salvo ({business_id})",
             level="warning",
         )
-    ctx.log("E-mail do Business Manager confirmado")
+    ctx.log("E-mail do Business Manager confirmado", level="success")
     tracker.save_checkpoint(cnpj, "email_confirmado")
 
 
@@ -268,16 +268,15 @@ def _step_business_info(ctx: _Ctx, driver, profile_id: str, cnpj: str, saved: di
         zip_code=saved["cep"],
         tax_id=cnpj,
         website=saved["url"],
+        check_pause=ctx.check_pause,
     )
-    ctx.log("Campos de Business Info preenchidos (exceto telefone)")
+    ctx.check_pause()
+    facebook_business_info.fill_phone(driver)
+    ctx.log("Campos de Business Info preenchidos (telefone: 11999999999)")
 
-    ctx.log("Preencha o número de telefone comercial na tela do Business Info e clique Continuar.",
-            level="manual")
-    ctx.wait_manual("Preencher Business phone number no Facebook")
-    ctx.log("Confirmado: telefone preenchido manualmente")
-
+    ctx.check_pause()
     facebook_business_info.submit_business_details(driver)
-    ctx.log("Business Info salvo")
+    ctx.log("Business Info salvo", level="success")
     tracker.save_checkpoint(cnpj, "business_info_preenchido")
 
 
@@ -306,7 +305,7 @@ def _step_whatsapp(ctx: _Ctx, driver, profile_id: str, cnpj: str, saved: dict) -
         level="manual",
     )
     ctx.wait_manual("Concluir criação da conta WhatsApp (categoria + telefone + captcha)")
-    ctx.log("Confirmado: etapa de WhatsApp concluída manualmente")
+    ctx.log("Confirmado: etapa de WhatsApp concluída manualmente", level="success")
     tracker.save_checkpoint(cnpj, "whatsapp_concluido")
 
 
@@ -326,7 +325,7 @@ def _step_business_verification(ctx: _Ctx, driver, profile_id: str, cnpj: str, s
         level="manual",
     )
     ctx.wait_manual("Concluir verificação de negócio (telefone/site)")
-    ctx.log("Confirmado: verificação de negócio concluída manualmente")
+    ctx.log("Confirmado: verificação de negócio concluída manualmente", level="success")
 
 
 # mapa etapa -> função executora avulsa. Usado por run_single_step (execução de
@@ -596,20 +595,19 @@ def run_for_next_pending_cnpj(
                     zip_code=saved["cep"],
                     tax_id=cnpj,
                     website=saved["url"],
+                    check_pause=ctx.check_pause,
                 )
             ctx.run_step_with_fallback(_fill_business_info, "Preencher Business Info")
-            ctx.log("Campos de Business Info preenchidos (exceto telefone)")
-
-            ctx.log("Preencha o número de telefone comercial na tela do Business Info e clique Continuar.",
-                    level="manual")
-            ctx.wait_manual("Preencher Business phone number no Facebook")
-            ctx.log("Confirmado: telefone preenchido manualmente")
+            ctx.run_step_with_fallback(
+                lambda: facebook_business_info.fill_phone(driver), "Preencher telefone comercial"
+            )
+            ctx.log("Campos de Business Info preenchidos (telefone: 11999999999)")
 
             ctx.run_step_with_fallback(
                 lambda: facebook_business_info.submit_business_details(driver),
                 "Salvar Business Info",
             )
-            ctx.log("Business Info salvo")
+            ctx.log("Business Info salvo", level="success")
             tracker.save_checkpoint(cnpj, "business_info_preenchido")
         else:
             ctx.log("Business Info já preenchido anteriormente")
@@ -645,7 +643,7 @@ def run_for_next_pending_cnpj(
                 level="manual",
             )
             ctx.wait_manual("Concluir criação da conta WhatsApp (categoria + telefone + captcha)")
-            ctx.log("Confirmado: etapa de WhatsApp concluída manualmente")
+            ctx.log("Confirmado: etapa de WhatsApp concluída manualmente", level="success")
             tracker.save_checkpoint(cnpj, "whatsapp_concluido")
         else:
             ctx.log("Etapa de WhatsApp já tratada anteriormente")
@@ -670,7 +668,7 @@ def run_for_next_pending_cnpj(
                 level="manual",
             )
             ctx.wait_manual("Concluir verificação de negócio (telefone/site)")
-            ctx.log("Confirmado: verificação de negócio concluída manualmente")
+            ctx.log("Confirmado: verificação de negócio concluída manualmente", level="success")
         else:
             ctx.log("Verificação de negócio já iniciada anteriormente")
 

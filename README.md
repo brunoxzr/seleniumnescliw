@@ -26,7 +26,7 @@ site institucional gerado pelo [Buildfy](https://buildfyapp.vercel.app):
 - Inicia a verificação de negócio até a etapa de telefone/site
 
 Tudo isso é controlado por um **dashboard web** rodando em
-`http://127.0.0.1:5050`, usando perfis do [AdsPower](https://www.adspower.com/)
+`http://127.0.0.1:5051`, usando perfis do [AdsPower](https://www.adspower.com/)
 (navegador antidetect) para cada conta do Facebook.
 
 ## Como funciona
@@ -54,7 +54,7 @@ pip install -r requirements.txt
 python -m app.web.server
 ```
 
-O dashboard fica disponível em `http://127.0.0.1:5050`.
+O dashboard fica disponível em `http://127.0.0.1:5051`.
 
 ### Configuração
 
