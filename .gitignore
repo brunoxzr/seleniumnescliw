@@ -5,3 +5,12 @@ __pycache__/
 cnpjs.csv
 data/cnpjs_csv.hash
 data/telegram_chrome_profile/
+
+# build do executável (gerado por PyInstaller — refaça com o .spec)
+build/
+
+# dados/config editáveis do executável — não versionar (contêm segredos e dados reais)
+prod/MavioRobot/.env
+prod/MavioRobot/cnpjs.csv
+prod/MavioRobot/data/
+prod/*.zip

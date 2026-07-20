@@ -4,7 +4,9 @@ import json
 import os
 from datetime import datetime, timezone
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
+from .. import paths
+
+DATA_DIR = os.path.join(paths.BASE_DIR, "data")
 PROCESSED_FILE = os.path.join(DATA_DIR, "processed_cnpjs.json")
 CSV_HASH_FILE = os.path.join(DATA_DIR, "cnpjs_csv.hash")
 

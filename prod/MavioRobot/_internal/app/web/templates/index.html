@@ -1,0 +1,1280 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>Painel de Automação</title>
+  <style>
+    :root {
+      --bg: #0c0d11;
+      --card: #14161c;
+      --card-2: #191c24;
+      --border: #23262f;
+      --border-soft: #1a1d25;
+      --text: #eef0f3;
+      --muted: #868d9a;
+      --muted-2: #5c626f;
+      --accent: #3b82f6;
+      --accent-soft: rgba(59,130,246,0.12);
+      --accent-b: #f97316;
+      --success: #22c55e;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --manual: #a855f7;
+      --sidebar-w: 240px;
+      --sidebar-w-collapsed: 72px;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      display: flex;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---- sidebar de robôs (recolhível) ---- */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--card);
+      border-right: 1px solid var(--border-soft);
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+    }
+    .sidebar.collapsed {
+      width: var(--sidebar-w-collapsed);
+      min-width: var(--sidebar-w-collapsed);
+      padding: 20px 12px;
+    }
+
+    .sidebar-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; min-width: 0; }
+    .sidebar.collapsed .sidebar-brand { flex-direction: column; gap: 14px; margin-bottom: 18px; }
+    .sidebar-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      object-fit: cover;
+      flex-shrink: 0;
+      box-shadow: 0 4px 16px rgba(59,130,246,0.18);
+    }
+    .sidebar.collapsed .sidebar-logo { width: 36px; height: 36px; border-radius: 10px; }
+    .sidebar-brand-text { min-width: 0; overflow: hidden; white-space: nowrap; transition: opacity 0.15s, width 0.15s; flex: 1; }
+    .sidebar.collapsed .sidebar-brand-text { display: none; }
+    .sidebar h1 { font-size: 17px; margin: 0 0 2px; font-weight: 800; letter-spacing: -0.01em; }
+    .sidebar .subtitle { color: var(--muted); font-size: 11.5px; }
+
+    .sidebar-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, transform 0.2s;
+    }
+    .sidebar-toggle:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+    .sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+
+    .sidebar-section-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+      padding: 0 10px;
+      margin: 4px 0 8px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .sidebar.collapsed .sidebar-section-label { opacity: 0; height: 0; margin: 0; }
+
+    .robot-tab {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 10px;
+      border-radius: 11px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 0.15s, border-color 0.15s;
+      position: relative;
+      min-width: 0;
+    }
+    .robot-tab:hover { background: rgba(255,255,255,0.045); }
+    .robot-tab.active { background: var(--accent-soft); border-color: rgba(59,130,246,0.35); }
+    .robot-tab.active[data-slot="B"] { background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.35); }
+
+    .robot-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      position: relative;
+      color: var(--muted);
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .robot-tab.active .robot-icon { color: var(--accent); border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.08); }
+    .robot-icon svg { width: 19px; height: 19px; }
+
+    .robot-dot {
+      position: absolute;
+      bottom: -2px;
+      right: -2px;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--muted-2);
+      border: 2px solid var(--card);
+      flex-shrink: 0;
+    }
+    .robot-dot.running { background: var(--success); animation: pulse 1.5s infinite; }
+    .robot-dot.manual { background: var(--manual); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.45 } }
+
+    .robot-tab-info { min-width: 0; overflow: hidden; white-space: nowrap; transition: opacity 0.15s; }
+    .sidebar.collapsed .robot-tab-info { opacity: 0; width: 0; }
+    .robot-tab-name { font-size: 13.5px; font-weight: 650; }
+    .robot-tab-sub { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+
+    .sidebar-footer {
+      margin-top: auto;
+      font-size: 11px;
+      color: var(--muted-2);
+      line-height: 1.5;
+      padding: 12px 10px 0;
+      border-top: 1px solid var(--border-soft);
+      transition: opacity 0.15s;
+    }
+    .sidebar.collapsed .sidebar-footer { opacity: 0; pointer-events: none; }
+
+    /* ---- desktop: área onde as janelas flutuantes dos robôs vivem ---- */
+    .desktop {
+      flex: 1;
+      position: relative;
+      overflow: auto;
+      background:
+        radial-gradient(circle at 25% 15%, rgba(59,130,246,0.05), transparent 40%),
+        radial-gradient(circle at 80% 70%, rgba(249,115,22,0.04), transparent 40%);
+    }
+    .desktop-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 14px;
+      pointer-events: none;
+    }
+
+    /* ---- janela flutuante de um robô ---- */
+    .window {
+      position: absolute;
+      width: 560px;
+      height: 520px;
+      min-width: 320px;
+      min-height: 180px;
+      max-width: calc(100vw - 260px);
+      max-height: 92vh;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .window.open { display: flex; }
+    .window.minimized { display: none; }
+    .window.focused { border-color: rgba(59,130,246,0.5); box-shadow: 0 24px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(59,130,246,0.35); }
+    .window.maximized {
+      left: 0 !important;
+      top: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 0;
+    }
+    .window.maximized .window-resize-handle { display: none; }
+    .window-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 10px 10px 14px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      cursor: grab;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .window-titlebar:active { cursor: grabbing; }
+    .window-title-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .window-title-dot.running { background: var(--success); animation: pulse 1.5s infinite; }
+    .window-title-dot.manual { background: var(--manual); animation: pulse 1s infinite; }
+    .window-title-text { font-size: 13px; font-weight: 700; flex: 1; }
+    .window-title-sub { font-size: 11px; color: var(--muted); margin-right: 6px; }
+    /* botões de controle estilo macOS (bolinhas coloridas), à direita */
+    .window-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .window-btn {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      position: relative;
+      transition: filter 0.1s;
+    }
+    .window-btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.15);
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .window-btn:hover::before { opacity: 1; }
+    .window-btn:hover { filter: brightness(1.08); }
+    .window-btn.close { background: #ff5f57; }
+    .window-btn.minimize { background: #febc2e; }
+    .window-btn.maximize { background: #28c840; }
+    .window-btn-icon {
+      font-size: 8px;
+      line-height: 1;
+      color: rgba(0,0,0,0.55);
+      opacity: 0;
+      transition: opacity 0.1s;
+      position: relative;
+      pointer-events: none;
+    }
+    .window-controls:hover .window-btn-icon { opacity: 1; }
+    .window-body { flex: 1; overflow-y: auto; padding: 20px; min-height: 0; }
+
+    /* scrollbars finas e no tema escuro (em vez da barra nativa branca/grossa) */
+    .window-body, .log-list, .cnpj-table-wrap {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .window-body::-webkit-scrollbar,
+    .log-list::-webkit-scrollbar,
+    .cnpj-table-wrap::-webkit-scrollbar { width: 9px; height: 9px; }
+    .window-body::-webkit-scrollbar-track,
+    .log-list::-webkit-scrollbar-track,
+    .cnpj-table-wrap::-webkit-scrollbar-track { background: transparent; }
+    .window-body::-webkit-scrollbar-thumb,
+    .log-list::-webkit-scrollbar-thumb,
+    .cnpj-table-wrap::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 8px;
+      border: 2px solid var(--bg);
+    }
+    .window-body::-webkit-scrollbar-thumb:hover,
+    .log-list::-webkit-scrollbar-thumb:hover,
+    .cnpj-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--muted-2); }
+
+    /* handle de redimensionar — arraste manual em JS (mais confiável entre
+       navegadores que o resize:both nativo do CSS, que pode ficar invisível
+       dependendo do overflow do elemento) */
+    .window-resize-handle {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 22px;
+      height: 22px;
+      cursor: nwse-resize;
+      z-index: 5;
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-end;
+      padding: 4px;
+    }
+    .window-resize-handle::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      background:
+        linear-gradient(135deg, transparent 0 30%, var(--muted) 30% 42%, transparent 42% 58%, var(--muted) 58% 70%, transparent 70% 100%);
+      opacity: 0.85;
+    }
+    .window-resize-handle:hover::before { opacity: 1; }
+
+    .main-empty { display: none; }
+    .panel { display: block; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
+    }
+    .card h2 {
+      font-size: 12px;
+      margin: 0 0 16px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 700;
+    }
+
+    .status-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+    .status-dot.running { background: var(--accent); animation: pulse 1.5s infinite; }
+    .status-dot.idle { background: var(--muted); }
+    .status-text { font-size: 15px; font-weight: 600; }
+    .status-cnpj { color: var(--muted); font-size: 13px; }
+
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 9px 16px;
+      border-radius: 9px;
+      font-size: 13.5px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: filter 0.12s, transform 0.06s;
+    }
+    button:hover { filter: brightness(1.12); }
+    button:active { transform: scale(0.98); }
+    button:disabled { background: var(--muted-2); cursor: not-allowed; filter: none; }
+    button.resume { background: var(--manual); }
+
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: rgba(255,255,255,0.04); }
+    tbody tr.selected { background: rgba(59,130,246,0.15); }
+    tbody td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+    .status-pill { display:inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .status-pill.pendente { background: rgba(139,147,163,0.2); color: var(--muted); }
+    .status-pill.concluido { background: rgba(34,197,94,0.2); color: var(--success); }
+    .status-pill.abortado { background: rgba(239,68,68,0.2); color: var(--error); }
+    .status-pill.emandamento { background: rgba(59,130,246,0.2); color: var(--accent); }
+
+    .cp-row { display:flex; align-items:center; gap:8px; font-size:13px; padding:4px 0; }
+    .cp-row label { flex:1; cursor:pointer; }
+    .cp-row.done label { color: var(--success); }
+    .cp-run-btn {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--border);
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .cp-run-btn:hover { background: rgba(59,130,246,0.12); }
+    .cp-run-btn:disabled { color: var(--muted); border-color: var(--border); cursor: not-allowed; background: transparent; }
+
+    .manual-banner {
+      display: none;
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid var(--manual);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .manual-banner.show { display: flex; }
+    .manual-banner .msg { font-size: 14px; }
+    .manual-banner .msg .label { color: var(--manual); font-weight: 600; display: block; font-size: 12px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.03em; }
+
+    .log-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+    .log-entry {
+      display: flex;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      background: rgba(255,255,255,0.02);
+      border-left: 3px solid var(--border);
+    }
+    .log-entry.info { border-left-color: var(--accent); }
+    .log-entry.success { border-left-color: var(--success); }
+    .log-entry.error { border-left-color: var(--error); }
+    .log-entry.warning { border-left-color: var(--warning); }
+    .log-entry.manual { border-left-color: var(--manual); background: rgba(168,85,247,0.06); }
+    .log-time { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .log-msg { flex: 1; }
+    .log-empty { color: var(--muted); font-size: 13px; padding: 8px; }
+
+    .celebrate-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      backdrop-filter: blur(2px);
+    }
+    .celebrate-overlay.show { display: flex; }
+    .celebrate-card {
+      background: linear-gradient(160deg, var(--card), #1d2130);
+      border: 1px solid var(--success);
+      border-radius: 16px;
+      padding: 36px 40px;
+      text-align: center;
+      max-width: 380px;
+      box-shadow: 0 0 60px rgba(34,197,94,0.25);
+      animation: pop-in 0.35s cubic-bezier(.2,1.4,.4,1);
+    }
+    @keyframes pop-in {
+      0% { transform: scale(0.85); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .celebrate-emoji { font-size: 48px; margin-bottom: 8px; }
+    .celebrate-title { font-size: 20px; font-weight: 700; color: var(--success); margin-bottom: 6px; }
+    .celebrate-sub { font-size: 14px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+    .celebrate-close { background: var(--success); }
+
+    .confetti-piece {
+      position: fixed;
+      top: -10px;
+      width: 8px;
+      height: 14px;
+      opacity: 0.9;
+      z-index: 999;
+      animation: confetti-fall linear forwards;
+    }
+
+    .welcome-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      cursor: pointer;
+      animation: welcome-fade-out 0.5s ease 2.4s forwards;
+    }
+    .welcome-content { text-align: center; animation: welcome-pop 0.6s cubic-bezier(.2,1.2,.3,1); }
+    .welcome-logo {
+      width: 128px;
+      height: 128px;
+      border-radius: 28px;
+      object-fit: cover;
+      margin-bottom: 26px;
+      box-shadow: 0 12px 44px rgba(59,130,246,0.3);
+    }
+    .welcome-mark {
+      font-size: 13px;
+      letter-spacing: 0.3em;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 18px;
+      text-transform: uppercase;
+    }
+    .welcome-title {
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+      background: linear-gradient(120deg, var(--accent), var(--accent-b));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .welcome-sub { font-size: 15px; color: var(--muted); }
+    .welcome-hint { margin-top: 28px; font-size: 11px; color: var(--muted); opacity: 0.6; }
+    @keyframes welcome-pop {
+      0% { opacity: 0; transform: translateY(8px) scale(0.97); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes welcome-fade-out {
+      to { opacity: 0; visibility: hidden; pointer-events: none; }
+    }
+
+    @keyframes confetti-fall {
+      to { transform: translateY(105vh) rotate(360deg); opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+  <div class="welcome-overlay" id="welcome-overlay" onclick="this.style.animation='welcome-fade-out 0.3s ease forwards'">
+    <div class="welcome-content">
+      <img src="/static/logo.png" alt="Mavio Robot" class="welcome-logo">
+      <div class="welcome-mark">Mavio Robot</div>
+      <div class="welcome-title">Bem-vindo de volta</div>
+      <div class="welcome-sub">{{ welcome_name }}</div>
+      <div class="welcome-hint">clique para continuar</div>
+    </div>
+  </div>
+
+  <div class="celebrate-overlay" id="celebrate-overlay">
+    <div class="celebrate-card">
+      <div class="celebrate-emoji">🎉</div>
+      <div class="celebrate-title">Parabéns, você completou um BM!</div>
+      <div class="celebrate-sub" id="celebrate-sub">Fluxo automatizável concluído com sucesso.</div>
+      <button class="celebrate-close" id="btn-celebrate-close">Show de bola</button>
+    </div>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <img src="/static/logo.png" alt="Mavio Robot" class="sidebar-logo">
+      <div class="sidebar-brand-text">
+        <h1>Mavio Robot</h1>
+        <div class="subtitle">Buildfy → Facebook</div>
+      </div>
+      <button class="sidebar-toggle" id="sidebar-toggle" title="Recolher/expandir barra lateral">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-section-label">Robôs</div>
+
+    {% for slot in slots %}
+    <div class="robot-tab" data-slot="{{ slot }}" onclick="openWindow('{{ slot }}')" title="Robô {{ slot }}">
+      <div class="robot-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="8" width="14" height="11" rx="3"></rect>
+          <path d="M12 8V4"></path>
+          <circle cx="12" cy="3" r="1.2" fill="currentColor" stroke="none"></circle>
+          <circle cx="9" cy="13" r="1.3" fill="currentColor" stroke="none"></circle>
+          <circle cx="15" cy="13" r="1.3" fill="currentColor" stroke="none"></circle>
+          <path d="M9 17h6"></path>
+          <path d="M2 12h3"></path>
+          <path d="M19 12h3"></path>
+        </svg>
+        <div class="robot-dot idle" id="tab-dot-{{ slot }}"></div>
+      </div>
+      <div class="robot-tab-info">
+        <div class="robot-tab-name">Robô {{ slot }}</div>
+        <div class="robot-tab-sub" id="tab-sub-{{ slot }}">Parado</div>
+      </div>
+    </div>
+    {% endfor %}
+
+    <div class="sidebar-footer">
+      Clique num robô para abrir a janela dele. Cada robô roda um perfil AdsPower
+      e um CNPJ de forma independente — até {{ slots|length }} ao mesmo tempo.
+    </div>
+  </div>
+
+  <div class="desktop" id="desktop">
+    <div class="desktop-empty" id="desktop-empty">Selecione um robô na barra lateral para abrir a janela dele.</div>
+
+    {% for slot in slots %}
+    <div class="window" id="panel-{{ slot }}" data-slot="{{ slot }}">
+      <div class="window-titlebar" onmousedown="startDrag(event, '{{ slot }}')" ondblclick="maximizeWindow('{{ slot }}', event)">
+        <div class="window-title-dot idle" id="win-dot-{{ slot }}"></div>
+        <div class="window-title-text">Robô {{ slot }}</div>
+        <div class="window-title-sub" id="win-sub-{{ slot }}"></div>
+        <div class="window-controls">
+          <div class="window-btn maximize" title="Maximizar" onclick="maximizeWindow('{{ slot }}', event)"><span class="window-btn-icon">+</span></div>
+          <div class="window-btn minimize" title="Minimizar" onclick="minimizeWindow('{{ slot }}', event)"><span class="window-btn-icon">–</span></div>
+          <div class="window-btn close" title="Fechar" onclick="closeWindow('{{ slot }}', event)"><span class="window-btn-icon">✕</span></div>
+        </div>
+      </div>
+      <div class="window-body">
+
+      <div class="card">
+        <h2>Teste de conexão AdsPower</h2>
+        <p style="color: var(--muted); font-size: 13px;">Perfil piloto: <code>{{ pilot_profile_id }}</code></p>
+        <button data-el="btn-test">Abrir perfil e testar conexão</button>
+        <div data-el="test-result" style="margin-top: 12px; font-size: 13px; color: var(--muted);"></div>
+      </div>
+
+      <div class="card">
+        <h2>Automação — Robô {{ slot }}</h2>
+        <div class="status-row">
+          <div class="status-dot idle" data-el="status-dot"></div>
+          <div>
+            <div class="status-text" data-el="status-text">Parado</div>
+            <div class="status-cnpj" data-el="status-cnpj"></div>
+          </div>
+        </div>
+
+        <div class="manual-banner" data-el="manual-banner">
+          <div class="msg">
+            <span class="label">Ação manual necessária</span>
+            <span data-el="manual-msg"></span>
+          </div>
+          <button class="resume" data-el="btn-resume">Continuar</button>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size: 13px; color: var(--muted); margin-bottom: 4px;">Perfil AdsPower</label>
+          <select data-el="select-profile" style="width: 100%; padding: 8px; border-radius: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);"></select>
+        </div>
+
+        <button data-el="btn-start">Processar CNPJ selecionado</button>
+        <button data-el="btn-pause" style="background: var(--warning); margin-left: 8px;" disabled>Pausar</button>
+        <button data-el="btn-close-browser" style="background: transparent; border: 1px solid var(--border); color: var(--muted); margin-left: 8px;">Fechar navegador</button>
+        <span data-el="selected-cnpj-label" style="margin-left: 10px; font-size: 13px; color: var(--muted);"></span>
+        <p style="font-size:11px; color:var(--muted); margin: 8px 0 0;">
+          O navegador fica aberto entre execuções para agilizar testes. Use "Fechar navegador" quando terminar por hoje ou for trocar de perfil.
+        </p>
+      </div>
+
+      <div class="card" data-el="checkpoint-card" style="display:none;">
+        <h2>Etapas do CNPJ selecionado</h2>
+        <div data-el="checkpoint-list" style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;"></div>
+
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <input data-el="cp-business-id" placeholder="business_id (opcional)" style="flex:1; padding:7px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+          <input data-el="cp-site-id" placeholder="site_id (opcional)" style="flex:1; padding:7px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+        </div>
+        <p style="font-size:12px; color:var(--muted); margin: 0 0 10px;">
+          Marque uma etapa como concluída para pular ela na próxima execução. Preencha business_id/site_id se estiver marcando "Business Manager criado" ou "Dados do site obtidos" pela primeira vez manualmente.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>CNPJs (cnpjs.csv)</h2>
+        <input data-el="cnpj-search" placeholder="Buscar por CNPJ ou razão social..." style="width:100%; padding:8px; margin-bottom:10px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+        <div class="cnpj-table-wrap" style="max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+          <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="position: sticky; top:0; background: var(--card);">
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);"></th>
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">CNPJ</th>
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">Razão Social</th>
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">Status</th>
+              </tr>
+            </thead>
+            <tbody data-el="cnpj-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Log — Robô {{ slot }}</h2>
+        <div class="log-list" data-el="log-list">
+          <div class="log-empty">Nenhuma execução ainda.</div>
+        </div>
+      </div>
+
+      </div>
+      <div class="window-resize-handle" onmousedown="startResize(event, '{{ slot }}')"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <script>
+    // ---- recolher/expandir sidebar (persiste a preferência) ----
+    const sidebarEl = document.getElementById('sidebar');
+    const sidebarToggleEl = document.getElementById('sidebar-toggle');
+    if (localStorage.getItem('mavio-sidebar-collapsed') === '1') {
+      sidebarEl.classList.add('collapsed');
+    }
+    sidebarToggleEl.addEventListener('click', () => {
+      const collapsed = sidebarEl.classList.toggle('collapsed');
+      localStorage.setItem('mavio-sidebar-collapsed', collapsed ? '1' : '0');
+    });
+
+    const SLOTS = {{ slots | tojson }};
+    let openWindows = []; // slots com janela aberta, na ordem de empilhamento (último = na frente)
+    let zCounter = 10;
+
+    // cada robô tem seu próprio estado isolado (seleção de CNPJ, timestamp de
+    // celebração já mostrada, e a própria lista de CNPJs disponíveis — cada
+    // robô vê uma lista diferente, já que CNPJs em uso por OUTROS robôs ou já
+    // processados por qualquer um deles ficam de fora)
+    const state = {};
+    const cnpjsBySlot = {};
+    for (const slot of SLOTS) {
+      state[slot] = { selectedCnpj: null, lastCelebratedTimestamp: null };
+      cnpjsBySlot[slot] = [];
+    }
+
+    function el(slot, name) {
+      return document.querySelector(`#panel-${slot} [data-el="${name}"]`);
+    }
+
+    function windowEl(slot) {
+      return document.getElementById(`panel-${slot}`);
+    }
+
+    function updateDesktopEmptyState() {
+      document.getElementById('desktop-empty').style.display = openWindows.length ? 'none' : 'flex';
+    }
+
+    // posição em cascata pra cada nova janela aberta, pra não empilhar tudo
+    // exatamente no mesmo lugar
+    function cascadePosition(slot) {
+      const index = SLOTS.indexOf(slot);
+      return { left: 40 + index * 36, top: 24 + index * 32 };
+    }
+
+    // abre a janela do robô (se ainda não aberta) e foca nela — chamado ao
+    // clicar no robô na sidebar
+    function openWindow(slot) {
+      const win = windowEl(slot);
+      if (!openWindows.includes(slot)) {
+        openWindows.push(slot);
+        const pos = cascadePosition(slot);
+        win.style.left = pos.left + 'px';
+        win.style.top = pos.top + 'px';
+        win.classList.add('open');
+      }
+      win.classList.remove('minimized');
+      focusWindow(slot);
+      updateDesktopEmptyState();
+    }
+
+    // traz a janela pra frente (z-index mais alto) sem mudar minimizado/aberto
+    function focusWindow(slot) {
+      zCounter += 1;
+      windowEl(slot).style.zIndex = zCounter;
+      document.querySelectorAll('.window').forEach(w => {
+        w.classList.toggle('focused', w.getAttribute('data-slot') === slot);
+      });
+    }
+
+    // minimiza (esconde mas mantém "aberta" — reabrir pela sidebar restaura)
+    function minimizeWindow(slot, ev) {
+      if (ev) ev.stopPropagation();
+      windowEl(slot).classList.add('minimized');
+    }
+
+    // fecha de vez (some da lista de abertas) — a automação daquele robô
+    // continua rodando em background, se estiver rodando
+    function closeWindow(slot, ev) {
+      if (ev) ev.stopPropagation();
+      openWindows = openWindows.filter(s => s !== slot);
+      const win = windowEl(slot);
+      win.classList.remove('open', 'minimized', 'focused');
+      updateDesktopEmptyState();
+    }
+
+    // alterna entre maximizada (ocupa toda a área do desktop) e restaurada
+    // (volta pra posição/tamanho de antes de maximizar)
+    const preMaximizeRect = {};
+
+    function maximizeWindow(slot, ev) {
+      if (ev) ev.stopPropagation();
+      const win = windowEl(slot);
+      focusWindow(slot);
+
+      if (win.classList.contains('maximized')) {
+        win.classList.remove('maximized');
+        const prev = preMaximizeRect[slot];
+        if (prev) {
+          win.style.left = prev.left;
+          win.style.top = prev.top;
+          win.style.width = prev.width;
+          win.style.height = prev.height;
+        }
+      } else {
+        preMaximizeRect[slot] = {
+          left: win.style.left,
+          top: win.style.top,
+          width: win.style.width,
+          height: win.style.height,
+        };
+        win.classList.add('maximized');
+      }
+    }
+
+    // ---- arrastar janela pela barra de título ----
+    let dragState = null;
+
+    function startDrag(ev, slot) {
+      // ignora clique nos botões de minimizar/fechar/maximizar (ou seus ícones) na barra de título
+      if (ev.target.closest('.window-controls')) return;
+      if (windowEl(slot).classList.contains('maximized')) return;
+      focusWindow(slot);
+      const win = windowEl(slot);
+      const rect = win.getBoundingClientRect();
+      const desktopRect = document.getElementById('desktop').getBoundingClientRect();
+      dragState = {
+        slot,
+        offsetX: ev.clientX - rect.left,
+        offsetY: ev.clientY - rect.top,
+        desktopRect,
+      };
+      document.addEventListener('mousemove', onDrag);
+      document.addEventListener('mouseup', stopDrag);
+    }
+
+    function onDrag(ev) {
+      if (!dragState) return;
+      const win = windowEl(dragState.slot);
+      const left = ev.clientX - dragState.desktopRect.left - dragState.offsetX
+        + document.getElementById('desktop').scrollLeft;
+      const top = ev.clientY - dragState.desktopRect.top - dragState.offsetY
+        + document.getElementById('desktop').scrollTop;
+      win.style.left = Math.max(0, left) + 'px';
+      win.style.top = Math.max(0, top) + 'px';
+    }
+
+    function stopDrag() {
+      dragState = null;
+      document.removeEventListener('mousemove', onDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    }
+
+    // ---- redimensionar janela pelo handle no canto inferior direito ----
+    let resizeState = null;
+
+    function startResize(ev, slot) {
+      if (windowEl(slot).classList.contains('maximized')) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      focusWindow(slot);
+      const win = windowEl(slot);
+      const rect = win.getBoundingClientRect();
+      resizeState = {
+        slot,
+        startX: ev.clientX,
+        startY: ev.clientY,
+        startWidth: rect.width,
+        startHeight: rect.height,
+      };
+      document.addEventListener('mousemove', onResize);
+      document.addEventListener('mouseup', stopResize);
+    }
+
+    function onResize(ev) {
+      if (!resizeState) return;
+      const win = windowEl(resizeState.slot);
+      const newWidth = resizeState.startWidth + (ev.clientX - resizeState.startX);
+      const newHeight = resizeState.startHeight + (ev.clientY - resizeState.startY);
+      win.style.width = Math.max(320, newWidth) + 'px';
+      win.style.height = Math.max(180, newHeight) + 'px';
+    }
+
+    function stopResize() {
+      resizeState = null;
+      document.removeEventListener('mousemove', onResize);
+      document.removeEventListener('mouseup', stopResize);
+    }
+
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function renderLog(slot, entries) {
+      const list = el(slot, 'log-list');
+      if (!entries.length) {
+        list.innerHTML = '<div class="log-empty">Nenhuma execução ainda.</div>';
+        return;
+      }
+      list.innerHTML = entries.map(e => `
+        <div class="log-entry ${e.level}">
+          <span class="log-time">${fmtTime(e.timestamp)}</span>
+          <span class="log-msg">${e.message}</span>
+        </div>
+      `).join('');
+      list.scrollTop = list.scrollHeight;
+    }
+
+    const CONFETTI_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
+
+    function fireConfetti() {
+      const count = 60;
+      for (let i = 0; i < count; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left = Math.random() * 100 + 'vw';
+        piece.style.background = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+        piece.style.animationDuration = (2.2 + Math.random() * 1.6) + 's';
+        piece.style.animationDelay = (Math.random() * 0.4) + 's';
+        document.body.appendChild(piece);
+        setTimeout(() => piece.remove(), 4200);
+      }
+    }
+
+    function maybeCelebrate(slot, entries, cnpj) {
+      const win = [...entries].reverse().find(e =>
+        e.level === 'success' && e.message.includes('Etapa automatizável concluída')
+      );
+      if (!win || win.timestamp === state[slot].lastCelebratedTimestamp) return;
+      state[slot].lastCelebratedTimestamp = win.timestamp;
+
+      el(slot, 'celebrate-sub'); // no-op guard, real element below is global
+      document.getElementById('celebrate-sub').textContent = cnpj
+        ? `Robô ${slot}: CNPJ ${cnpj} passou por todas as etapas automatizáveis. Falta só o resto manual pelo Telegram.`
+        : `Robô ${slot}: fluxo automatizável concluído com sucesso.`;
+      document.getElementById('celebrate-overlay').classList.add('show');
+      fireConfetti();
+    }
+
+    async function pollSlot(slot) {
+      try {
+        const resp = await fetch(`/api/automation/status?slot=${slot}`);
+        const data = await resp.json();
+
+        el(slot, 'status-dot').className = 'status-dot ' + (data.running ? 'running' : 'idle');
+        el(slot, 'status-text').textContent = data.running ? 'Em execução' : 'Parado';
+        el(slot, 'status-cnpj').textContent = data.current_cnpj ? `CNPJ: ${data.current_cnpj}` : '';
+
+        el(slot, 'btn-start').disabled = data.running;
+        el(slot, 'btn-pause').disabled = data.pause_requested;
+        document.querySelectorAll(`#panel-${slot} [data-run-step]`).forEach(btn => {
+          btn.disabled = data.running;
+          if (!data.running) btn.textContent = 'Rodar';
+        });
+
+        const manual = data.manual_step;
+        const manualActive = !!(manual && manual.active);
+        if (manualActive) {
+          el(slot, 'manual-banner').classList.add('show');
+          el(slot, 'manual-msg').textContent = manual.message;
+        } else {
+          el(slot, 'manual-banner').classList.remove('show');
+        }
+
+        // atualiza o indicador na sidebar (visível mesmo com a aba não aberta)
+        const tabDot = document.getElementById(`tab-dot-${slot}`);
+        const tabSub = document.getElementById(`tab-sub-${slot}`);
+        let dotClass, subText;
+        if (manualActive) {
+          dotClass = 'manual';
+          subText = 'Ação manual necessária';
+        } else if (data.running) {
+          dotClass = 'running';
+          subText = data.current_cnpj ? `CNPJ ${data.current_cnpj}` : 'Em execução';
+        } else {
+          dotClass = 'idle';
+          subText = 'Parado';
+        }
+        tabDot.className = 'robot-dot ' + dotClass;
+        tabSub.textContent = subText;
+
+        // mesmo indicador na barra de título da janela flutuante
+        const winDot = document.getElementById(`win-dot-${slot}`);
+        const winSub = document.getElementById(`win-sub-${slot}`);
+        if (winDot) winDot.className = 'window-title-dot ' + dotClass;
+        if (winSub) winSub.textContent = subText;
+
+        renderLog(slot, data.entries);
+        maybeCelebrate(slot, data.entries, data.current_cnpj);
+
+        // mantém os checkpoints do CNPJ selecionado em dia sem precisar F5
+        if (state[slot].selectedCnpj) {
+          loadCheckpoints(slot, state[slot].selectedCnpj);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function pollAll() {
+      for (const slot of SLOTS) pollSlot(slot);
+    }
+
+    document.getElementById('btn-celebrate-close').addEventListener('click', () => {
+      document.getElementById('celebrate-overlay').classList.remove('show');
+    });
+
+    function statusLabel(status) {
+      const map = { pendente: 'Pendente', concluido: 'Concluído', abortado: 'Abortado' };
+      return map[status] || 'Em andamento';
+    }
+
+    function statusClass(status) {
+      if (status === 'pendente') return 'pendente';
+      if (status === 'concluido') return 'concluido';
+      if (status === 'abortado') return 'abortado';
+      return 'emandamento';
+    }
+
+    function selectCnpj(slot, cnpj) {
+      state[slot].selectedCnpj = cnpj;
+      el(slot, 'selected-cnpj-label').textContent = cnpj ? 'Selecionado: ' + cnpj : '';
+      renderCnpjTable(slot, el(slot, 'cnpj-search').value);
+      loadCheckpoints(slot, cnpj);
+    }
+
+    function renderCnpjTable(slot, filterText) {
+      const tbody = el(slot, 'cnpj-table-body');
+      const slotCnpjs = cnpjsBySlot[slot];
+      const filtered = !filterText ? slotCnpjs : slotCnpjs.filter(c =>
+        c.cnpj.includes(filterText) || c.razao_social.toLowerCase().includes(filterText.toLowerCase())
+      );
+      const selected = state[slot].selectedCnpj;
+      tbody.innerHTML = filtered.map(c => `
+        <tr data-cnpj="${c.cnpj}" class="${c.cnpj === selected ? 'selected' : ''}">
+          <td><input type="radio" name="cnpj-radio-${slot}" ${c.cnpj === selected ? 'checked' : ''}></td>
+          <td>${c.cnpj}</td>
+          <td>${c.razao_social}</td>
+          <td><span class="status-pill ${statusClass(c.status)}">${statusLabel(c.status)}</span></td>
+        </tr>
+      `).join('');
+
+      tbody.querySelectorAll('tr').forEach(row => {
+        row.addEventListener('click', () => {
+          selectCnpj(slot, row.getAttribute('data-cnpj'));
+        });
+      });
+    }
+
+    const STEP_LABELS = {
+      site_data_obtida: 'Dados do site obtidos',
+      business_manager_criado: 'Business Manager criado',
+      email_confirmado: 'E-mail do Business Manager confirmado',
+      pages_ok: 'Checagem de Pages OK',
+      dominio_adicionado: 'Domínio adicionado no Facebook',
+      meta_tag_aplicada: 'Meta-tag aplicada no Buildfy',
+      dominio_verificado: 'Domínio verificado',
+      business_info_preenchido: 'Business Info preenchido',
+      idioma_pt_br: 'Idioma definido (Português Brasil)',
+      whatsapp_categoria_preenchida: 'Categoria WhatsApp preenchida',
+      whatsapp_concluido: 'WhatsApp concluído (manual)',
+      verificacao_negocio_iniciada: 'Verificação de negócio iniciada',
+      concluido: 'Fluxo concluído',
+    };
+
+    const RUNNABLE_STEPS = new Set(Object.keys(STEP_LABELS).filter(s => s !== 'concluido'));
+
+    async function loadCheckpoints(slot, cnpj) {
+      if (!cnpj) {
+        el(slot, 'checkpoint-card').style.display = 'none';
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/cnpj/${cnpj}/record`);
+        const data = await resp.json();
+        if (!data.ok) return;
+
+        el(slot, 'checkpoint-card').style.display = 'block';
+        const doneSteps = new Set(data.record.steps_done || []);
+        const cpList = el(slot, 'checkpoint-list');
+        cpList.innerHTML = data.all_steps.map(step => `
+          <div class="cp-row ${doneSteps.has(step) ? 'done' : ''}">
+            <input type="checkbox" data-step="${step}" ${doneSteps.has(step) ? 'checked' : ''}>
+            <label>${STEP_LABELS[step] || step}</label>
+            ${RUNNABLE_STEPS.has(step) ? `<button class="cp-run-btn" data-run-step="${step}">Rodar</button>` : ''}
+          </div>
+        `).join('');
+
+        cpList.querySelectorAll('[data-run-step]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const step = btn.getAttribute('data-run-step');
+            btn.disabled = true;
+            btn.textContent = '...';
+            const profileId = el(slot, 'select-profile').value;
+            const resp = await fetch('/api/automation/run-step', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cnpj, step, profile_id: profileId, slot }),
+            });
+            const result = await resp.json();
+            if (!result.ok) {
+              alert('Não foi possível iniciar: ' + (result.error || 'erro desconhecido'));
+              btn.disabled = false;
+              btn.textContent = 'Rodar';
+            }
+            pollSlot(slot);
+          });
+        });
+
+        const STEPS_REQUIRING_BUSINESS_ID = new Set([
+          'business_manager_criado', 'pages_ok', 'dominio_adicionado', 'meta_tag_aplicada',
+          'dominio_verificado', 'business_info_preenchido', 'whatsapp_categoria_preenchida',
+          'whatsapp_concluido',
+        ]);
+
+        cpList.querySelectorAll('input[type=checkbox]').forEach(cb => {
+          cb.addEventListener('change', async () => {
+            const step = cb.getAttribute('data-step');
+            if (cb.checked) {
+              const extraData = {};
+              const businessId = el(slot, 'cp-business-id').value.trim();
+              const siteId = el(slot, 'cp-site-id').value.trim();
+
+              const alreadyHasBusinessId = !!(data.record.data || {}).business_id;
+              if (STEPS_REQUIRING_BUSINESS_ID.has(step) && !businessId && !alreadyHasBusinessId) {
+                alert('Preencha o campo business_id antes de marcar esta etapa (ela depende dele).');
+                cb.checked = false;
+                return;
+              }
+
+              if (businessId) extraData.business_id = businessId;
+              if (siteId) extraData.site_id = siteId;
+              await fetch(`/api/cnpj/${cnpj}/checkpoint`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step, data: extraData }),
+              });
+            } else {
+              await fetch(`/api/cnpj/${cnpj}/unmark-step`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step }),
+              });
+            }
+            loadCheckpoints(slot, cnpj);
+            loadCnpjsAllSlots();
+          });
+        });
+
+        el(slot, 'cp-business-id').value = (data.record.data || {}).business_id || '';
+        el(slot, 'cp-site-id').value = (data.record.data || {}).site_id || '';
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadCnpjs(slot) {
+      try {
+        const resp = await fetch(`/api/cnpjs?slot=${slot}`);
+        const data = await resp.json();
+        if (data.ok) {
+          cnpjsBySlot[slot] = data.items;
+          renderCnpjTable(slot, el(slot, 'cnpj-search').value);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function loadCnpjsAllSlots() {
+      for (const slot of SLOTS) loadCnpjs(slot);
+    }
+
+    async function loadProfiles(slot) {
+      try {
+        const resp = await fetch('/api/adspower/profiles');
+        const data = await resp.json();
+        const select = el(slot, 'select-profile');
+        if (data.ok) {
+          // preserva a seleção atual ao atualizar a lista (evita resetar o
+          // dropdown pro topo a cada refresh automático)
+          const previousValue = select.value;
+          select.innerHTML = data.items.map(p =>
+            `<option value="${p.user_id}">${p.serial_number || ''} - ${p.name || p.user_id} (${p.group_name || ''})</option>`
+          ).join('');
+          if (previousValue && data.items.some(p => p.user_id === previousValue)) {
+            select.value = previousValue;
+          } else if (select.value) {
+            selectCnpjForProfile(slot, select.value);
+          }
+        } else {
+          select.innerHTML = `<option value="">Erro: ${data.error}</option>`;
+        }
+      } catch (err) {
+        el(slot, 'select-profile').innerHTML = '<option value="">Erro ao carregar perfis</option>';
+      }
+    }
+
+    async function selectCnpjForProfile(slot, profileId) {
+      if (!profileId) return;
+      try {
+        const resp = await fetch(`/api/profile/${profileId}/cnpj`);
+        const data = await resp.json();
+        if (data.ok && data.cnpj) {
+          selectCnpj(slot, data.cnpj);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    for (const slot of SLOTS) {
+      el(slot, 'select-profile').addEventListener('change', (e) => selectCnpjForProfile(slot, e.target.value));
+      el(slot, 'cnpj-search').addEventListener('input', (e) => renderCnpjTable(slot, e.target.value));
+
+      el(slot, 'btn-start').addEventListener('click', async () => {
+        el(slot, 'btn-start').disabled = true;
+        const profileId = el(slot, 'select-profile').value;
+        await fetch('/api/automation/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cnpj: state[slot].selectedCnpj, profile_id: profileId, slot }),
+        });
+        pollSlot(slot);
+        // o CNPJ que este robô acabou de pegar precisa sumir da lista dos
+        // outros robôs imediatamente, sem esperar o próximo ciclo de 15s
+        loadCnpjsAllSlots();
+      });
+
+      el(slot, 'btn-resume').addEventListener('click', async () => {
+        el(slot, 'btn-resume').disabled = true;
+        await fetch('/api/automation/resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot }),
+        });
+        el(slot, 'btn-resume').disabled = false;
+      });
+
+      el(slot, 'btn-pause').addEventListener('click', async () => {
+        el(slot, 'btn-pause').disabled = true;
+        await fetch('/api/automation/pause', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot }),
+        });
+      });
+
+      el(slot, 'btn-close-browser').addEventListener('click', async () => {
+        el(slot, 'btn-close-browser').disabled = true;
+        el(slot, 'btn-close-browser').textContent = 'Fechando...';
+        const profileId = el(slot, 'select-profile').value;
+        const resp = await fetch('/api/automation/close-browser', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: profileId, slot }),
+        });
+        const result = await resp.json();
+        if (!result.ok) alert('Não foi possível fechar: ' + (result.error || 'erro desconhecido'));
+        el(slot, 'btn-close-browser').disabled = false;
+        el(slot, 'btn-close-browser').textContent = 'Fechar navegador';
+      });
+
+      el(slot, 'btn-test').addEventListener('click', async () => {
+        const resultEl = el(slot, 'test-result');
+        resultEl.textContent = 'Abrindo perfil...';
+        try {
+          const resp = await fetch('/api/test-open', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile_id: '{{ pilot_profile_id }}' })
+          });
+          const data = await resp.json();
+          resultEl.textContent = JSON.stringify(data, null, 2);
+        } catch (err) {
+          resultEl.textContent = 'Erro: ' + err;
+        }
+      });
+
+      loadProfiles(slot);
+    }
+
+    // clicar em qualquer lugar do corpo da janela também traz ela pra frente
+    // (não só a barra de título)
+    for (const slot of SLOTS) {
+      windowEl(slot).addEventListener('mousedown', () => focusWindow(slot));
+    }
+
+    updateDesktopEmptyState();
+
+    pollAll();
+    setInterval(pollAll, 2000);
+    loadCnpjsAllSlots();
+    setInterval(loadCnpjsAllSlots, 15000);
+    setInterval(() => { for (const slot of SLOTS) loadProfiles(slot); }, 30000);
+  </script>
+</body>
+</html>
