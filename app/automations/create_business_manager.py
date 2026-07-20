@@ -84,18 +84,28 @@ def _click_submit_button(driver) -> bool:
     return True
 
 
-def _click_done_button(driver) -> bool:
-    """Encontra o botão 'Done' da tela de confirmação (aparece depois do
-    Submit carregar) e clica via CDP. Retorna True se encontrou e clicou."""
+def _find_done_button(driver):
+    """Localiza o botão 'Done' da tela de confirmação — é um <div> sem
+    role='button' explícito (confirmado no HTML real do elemento), então não
+    dá pra depender de @role aqui como em outros botões do fluxo. Pega o
+    elemento mais específico (menos descendentes) contendo o texto 'Done',
+    igual à técnica usada para achar a opção 'Brazil' no Country."""
     candidates = [
-        el for el in driver.find_elements(
-            By.XPATH, "//div[@role='button' or self::button][contains(.,'Done')]"
-        )
+        el for el in driver.find_elements(By.XPATH, "//*[contains(text(), 'Done')]")
         if el.is_displayed()
     ]
     if not candidates:
+        return None
+    return min(candidates, key=lambda el: len(el.find_elements(By.XPATH, ".//*")))
+
+
+def _click_done_button(driver) -> bool:
+    """Encontra o botão 'Done' da tela de confirmação (aparece depois do
+    Submit carregar) e clica via CDP. Retorna True se encontrou e clicou."""
+    button = _find_done_button(driver)
+    if button is None:
         return False
-    _cdp_click(driver, candidates[0])
+    _cdp_click(driver, button)
     return True
 
 
@@ -212,12 +222,26 @@ def create_business_manager(
             "manualmente se ele foi criado antes de tentar de novo."
         )
 
-    # tela de confirmação "Portfólio criado!" pode ter um botão 'Done' pra
-    # fechar o modal — clica automaticamente (mesma técnica CDP), sem pausar
-    # pra isso: se não existir ou não confirmar, não é bloqueante (a URL já
-    # tem o business_id, o fluxo pode seguir mesmo com o modal ainda aberto).
-    if _click_done_button(driver):
-        time.sleep(1)
+    # tela de confirmação "Portfólio criado!" tem um botão 'Done' pra fechar o
+    # modal — não é bloqueante pro fluxo (a URL já tem o business_id), mas
+    # precisa clicar de fato: o modal aparece de forma assíncrona depois do
+    # redirect (não instantâneo com o business_id já na URL), então primeiro
+    # espera ele EXISTIR na tela (sem gastar tentativas de clique enquanto não
+    # existe) e só então clica, confirmando que o botão realmente desapareceu.
+    done_button = None
+    for _ in range(15):
+        done_button = _find_done_button(driver)
+        if done_button is not None:
+            break
+        time.sleep(0.4)
+
+    if done_button is not None:
+        for _ in range(5):
+            _cdp_click(driver, done_button)
+            time.sleep(0.6)
+            done_button = _find_done_button(driver)
+            if done_button is None:
+                break
 
     url = safe_url(driver)
     business_id = url.split("business_id=")[1].split("&")[0]

@@ -5,7 +5,9 @@ import time
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-load_dotenv()
+from app import paths
+
+load_dotenv(os.path.join(paths.BASE_DIR, ".env"))
 
 from app.adspower.client import AdsPowerError, list_profiles
 from app.adspower.driver import close_driver, force_close_driver, open_driver
@@ -242,4 +244,4 @@ def automation_close_browser():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5050, use_reloader=False)
+    app.run(debug=True, port=5051, use_reloader=False, threaded=True)

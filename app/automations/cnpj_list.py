@@ -2,9 +2,10 @@
 import csv
 import os
 
+from .. import paths
 from . import run_log, tracker
 
-CSV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "cnpjs.csv")
+CSV_PATH = os.path.join(paths.BASE_DIR, "cnpjs.csv")
 
 
 def list_cnpjs_with_status(limit: int = 200, exclude_slot: str | None = None) -> list[dict]:
