@@ -244,4 +244,4 @@ def automation_close_browser():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5050, use_reloader=False)
+    app.run(debug=True, port=5050, use_reloader=False, threaded=True)
