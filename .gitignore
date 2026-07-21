@@ -4,7 +4,7 @@ __pycache__/
 *.pyc
 cnpjs.csv
 data/cnpjs_csv.hash
-data/telegram_chrome_profile/
+data/cnpjs_avulsos.json
 
 # build do executável (gerado por PyInstaller — refaça com o .spec)
 build/

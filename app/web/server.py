@@ -125,6 +125,23 @@ def api_cnpjs():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/cnpjs-avulsos", methods=["GET", "POST"])
+def api_cnpjs_avulsos():
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        cnpj = (body.get("cnpj") or "").strip()
+        if len(cnpj) != 14 or not cnpj.isdigit():
+            return jsonify({"ok": False, "error": "CNPJ inválido — precisa ter 14 dígitos."}), 400
+        cnpj_list.add_avulso(cnpj)
+        return jsonify({"ok": True})
+
+    try:
+        items = cnpj_list.list_avulsos_with_status(exclude_slot=_slot())
+        return jsonify({"ok": True, "items": items})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/cnpj/<cnpj>/record")
 def api_cnpj_record(cnpj):
     record = tracker.get_record(cnpj)
