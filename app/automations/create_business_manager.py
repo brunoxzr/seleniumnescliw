@@ -88,10 +88,16 @@ def _find_done_button(driver):
     """Localiza o botão 'Done' da tela de confirmação — é um <div> sem
     role='button' explícito (confirmado no HTML real do elemento), então não
     dá pra depender de @role aqui como em outros botões do fluxo. Pega o
-    elemento mais específico (menos descendentes) contendo o texto 'Done',
-    igual à técnica usada para achar a opção 'Brazil' no Country."""
+    elemento mais específico (menos descendentes) contendo o texto 'Done'.
+
+    Usa contains(., 'Done') (texto de qualquer descendente) em vez de
+    contains(text(), 'Done') (só texto filho direto) — com uma extensão do
+    Chrome de tradução automática ativa (ex: Google Tradutor) na página, o
+    texto pode ficar envolvido por spans/wrappers injetados, e contains(text())
+    não enxerga texto que não seja filho direto do nó.
+    """
     candidates = [
-        el for el in driver.find_elements(By.XPATH, "//*[contains(text(), 'Done')]")
+        el for el in driver.find_elements(By.XPATH, "//*[contains(., 'Done')]")
         if el.is_displayed()
     ]
     if not candidates:
@@ -162,6 +168,9 @@ def create_business_manager(
             "Resolva manualmente pelo AdsPower antes de tentar novamente."
         )
 
+    # os placeholders abaixo só existem com a conta em inglês — o orquestrador
+    # garante isso chamando facebook_language.set_language_english antes de
+    # criar o Business Manager (e volta para pt-BR depois, mais adiante no fluxo).
     business_name_field = driver.find_element(By.CSS_SELECTOR, "input[placeholder=\"Jasper's Market\"]")
     your_name_field = driver.find_element(By.CSS_SELECTOR, "input[placeholder*='first and last name']")
     email_field = driver.find_element(By.XPATH, "//input[not(@placeholder)]")

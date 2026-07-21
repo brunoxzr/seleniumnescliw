@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Painel de Automação</title>
+  <link rel="icon" type="image/png" href="/static/logo.png">
   <style>
     :root {
       --bg: #0c0d11;
@@ -627,11 +628,13 @@
         </div>
 
         <button data-el="btn-start">Processar CNPJ selecionado</button>
+        <button data-el="btn-fb-login" style="background: transparent; border: 1px solid var(--border); color: var(--text); margin-left: 8px;">Só logar Facebook</button>
         <button data-el="btn-pause" style="background: var(--warning); margin-left: 8px;" disabled>Pausar</button>
         <button data-el="btn-close-browser" style="background: transparent; border: 1px solid var(--border); color: var(--muted); margin-left: 8px;">Fechar navegador</button>
         <span data-el="selected-cnpj-label" style="margin-left: 10px; font-size: 13px; color: var(--muted);"></span>
         <p style="font-size:11px; color:var(--muted); margin: 8px 0 0;">
           O navegador fica aberto entre execuções para agilizar testes. Use "Fechar navegador" quando terminar por hoje ou for trocar de perfil.
+          "Só logar Facebook" abre o perfil e garante o login (2FA se pedido), sem escolher CNPJ — depois use "Processar CNPJ selecionado" ou "Continuar" que a sessão já estará logada.
         </p>
       </div>
 
@@ -986,6 +989,7 @@
         el(slot, 'status-cnpj').textContent = data.current_cnpj ? `CNPJ: ${data.current_cnpj}` : '';
 
         el(slot, 'btn-start').disabled = data.running;
+        el(slot, 'btn-fb-login').disabled = data.running;
         el(slot, 'btn-pause').disabled = data.pause_requested;
         document.querySelectorAll(`#panel-${slot} [data-run-step]`).forEach(btn => {
           btn.disabled = data.running;
@@ -1322,6 +1326,17 @@
         // outros robôs imediatamente, sem esperar o próximo ciclo de 15s
         loadCnpjsAllSlots();
         loadCnpjsAvulsosAllSlots();
+      });
+
+      el(slot, 'btn-fb-login').addEventListener('click', async () => {
+        el(slot, 'btn-fb-login').disabled = true;
+        const profileId = el(slot, 'select-profile').value;
+        await fetch('/api/automation/facebook-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: profileId, slot }),
+        });
+        pollSlot(slot);
       });
 
       el(slot, 'btn-resume').addEventListener('click', async () => {

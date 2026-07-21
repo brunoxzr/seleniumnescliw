@@ -16,6 +16,7 @@ from app.automations.orchestrator import (
     DEFAULT_PROFILE,
     SINGLE_STEP_RUNNERS,
     SLOTS,
+    run_facebook_login_only,
     run_for_next_pending_cnpj,
     run_single_step,
 )
@@ -79,6 +80,29 @@ def automation_start():
     def _run():
         try:
             run_for_next_pending_cnpj(requested_cnpj=requested_cnpj, profile_id=profile_id, slot=slot)
+        except Exception:
+            pass  # já registrado no run_log pelo orquestrador
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/automation/facebook-login", methods=["POST"])
+def automation_facebook_login():
+    """Processo independente de CNPJ: só abre o perfil e garante login no
+    Facebook (2FA se pedido). Depois disso, 'continuar processo' já encontra
+    a sessão logada e pula direto para a criação do site."""
+    slot = _slot()
+    if run_log.get_state(slot)["running"]:
+        return jsonify({"ok": False, "error": f"Já existe uma execução em andamento no robô {slot}"}), 409
+
+    body = request.get_json(silent=True) or {}
+    profile_id = (body.get("profile_id") or "").strip() or DEFAULT_PROFILE
+
+    def _run():
+        try:
+            run_facebook_login_only(profile_id=profile_id, slot=slot)
         except Exception:
             pass  # já registrado no run_log pelo orquestrador
 

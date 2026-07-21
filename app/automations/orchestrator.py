@@ -172,6 +172,9 @@ def _step_business_manager(ctx: _Ctx, driver, profile_id: str, cnpj: str, saved:
     )
     ctx.log("Login no Facebook confirmado")
 
+    facebook_language.set_language_english(driver)
+    ctx.log("Idioma da conta definido como English (US) para criação do BM")
+
     def _bm_manual_step(message: str) -> None:
         ctx.log(message, level="manual")
         ctx.wait_manual(message)
@@ -405,6 +408,53 @@ def run_single_step(cnpj: str, step: str, profile_id: str | None = None, slot: s
         close_driver(driver, profile_id)
 
 
+def run_facebook_login_only(
+    profile_id: str | None = None,
+    slot: str = run_log.DEFAULT_SLOT,
+) -> dict:
+    """Processo independente de CNPJ: só abre o perfil AdsPower e garante o
+    login no Facebook (2FA se pedido). Se a sessão do perfil já estiver
+    logada, `ensure_logged_in` detecta isso sozinho e não pede 2FA de novo —
+    o usuário roda esse processo primeiro para "esquentar" o login, e depois
+    usa 'continuar processo' (run_for_next_pending_cnpj) sabendo que o
+    Facebook já está logado, sem passar pela tela de 2FA outra vez.
+    """
+    ctx = _Ctx(slot)
+    profile_id = profile_id or DEFAULT_PROFILE
+    ctx.begin()
+    try:
+        driver = open_driver(profile_id)
+    except Exception as e:
+        ctx.finish_run(False, f"Erro ao abrir perfil AdsPower '{profile_id}': {e}")
+        raise
+
+    try:
+        ctx.log(f"Usando perfil AdsPower: {profile_id}")
+
+        def _login_manual_step(message: str) -> None:
+            ctx.log(message, level="manual")
+            ctx.wait_manual(message)
+            ctx.log("Confirmado: 2FA concluído manualmente")
+
+        ctx.run_step_with_fallback(
+            lambda: facebook_login.ensure_logged_in(driver, profile_id, on_manual_step=_login_manual_step),
+            "Login no Facebook",
+        )
+        ctx.log("Login no Facebook confirmado", level="success")
+        ctx.finish_run(True, "Login no Facebook concluído")
+        return {"ok": True}
+    except run_log.PausedByUser:
+        ctx.log("Execução pausada pelo usuário.", level="warning")
+        ctx.finish_run(True, "Pausado")
+        return {"ok": False, "reason": "pausado"}
+    except Exception as e:
+        ctx.log(f"Erro: {e}", level="error")
+        ctx.finish_run(False, str(e))
+        raise
+    finally:
+        close_driver(driver, profile_id)
+
+
 def run_for_next_pending_cnpj(
     requested_cnpj: str | None = None,
     profile_id: str | None = None,
@@ -421,6 +471,24 @@ def run_for_next_pending_cnpj(
 
     try:
         ctx.log(f"Usando perfil AdsPower: {profile_id}")
+
+        # login no Facebook primeiro, ANTES de qualquer coisa do Buildfy/CNPJ —
+        # não depende de qual CNPJ vai ser processado, só do perfil AdsPower.
+        # Motivação: se o 2FA falhar, não desperdiça um crédito de criação de
+        # site no Buildfy à toa. Também é idempotente — se a sessão do
+        # perfil já estiver logada (ensure_logged_in detecta isso sozinho),
+        # não pede 2FA de novo, e o fluxo segue direto para o Buildfy.
+        def _login_manual_step(message: str) -> None:
+            ctx.log(message, level="manual")
+            ctx.wait_manual(message)
+            ctx.log("Confirmado: 2FA concluído manualmente")
+
+        ctx.run_step_with_fallback(
+            lambda: facebook_login.ensure_logged_in(driver, profile_id, on_manual_step=_login_manual_step),
+            "Login no Facebook",
+        )
+        ctx.log("Login no Facebook confirmado")
+
         ctx.run_step_with_fallback(lambda: buildfy.ensure_logged_in(driver, slot=slot), "Login no Buildfy")
         ctx.log("Login no Buildfy confirmado")
 
@@ -464,24 +532,29 @@ def run_for_next_pending_cnpj(
             ctx.log("Dados do site já obtidos anteriormente (checkpoint)")
         saved = tracker.get_record(cnpj)["data"]
 
+        if not saved.get("empresa"):
+            raise RuntimeError(
+                f"Dados do site do Buildfy vieram sem o nome da empresa (site_id={site_id}). "
+                "Desmarque o checkpoint 'Dados do site' no dashboard e rode essa etapa de novo."
+            )
+
         business_name = _strip_cnpj_prefix(saved["empresa"])
         business_email = f"{saved['dominio'].split('.')[0]}@{'.'.join(saved['dominio'].split('.')[1:])}"
-
-        def _login_manual_step(message: str) -> None:
-            ctx.log(message, level="manual")
-            ctx.wait_manual(message)
-            ctx.log("Confirmado: 2FA concluído manualmente")
-
-        ctx.run_step_with_fallback(
-            lambda: facebook_login.ensure_logged_in(driver, profile_id, on_manual_step=_login_manual_step),
-            "Login no Facebook",
-        )
-        ctx.log("Login no Facebook confirmado")
 
         # 2. business manager
         ctx.check_pause()
         done = set(tracker.get_record(cnpj)["steps_done"])
         if "business_manager_criado" not in done:
+            # o formulário de criação do BM só tem seletores confiáveis
+            # mapeados na versão em inglês da tela — se a conta estiver em
+            # outro idioma (ex: pt-BR, herdado do perfil AdsPower), força
+            # inglês antes de abrir o formulário. Volta para pt-BR mais
+            # adiante no fluxo (etapa "idioma_pt_br", antes do WhatsApp).
+            ctx.run_step_with_fallback(
+                lambda: facebook_language.set_language_english(driver), "Definir idioma da conta para inglês"
+            )
+            ctx.log("Idioma da conta definido como English (US) para criação do BM")
+
             def _bm_manual_step(message: str) -> None:
                 ctx.log(message, level="manual")
                 ctx.wait_manual(message)
