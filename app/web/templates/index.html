@@ -648,6 +648,17 @@
       </div>
 
       <div class="card">
+        <h2>CNPJ avulso (fora da lista)</h2>
+        <div style="display:flex; gap:8px;">
+          <input data-el="cnpj-avulso" placeholder="Digite um CNPJ (só números)" maxlength="18" style="flex:1; padding:8px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+          <button data-el="btn-cnpj-avulso" style="background: transparent; border: 1px solid var(--border); color: var(--text);">Selecionar</button>
+        </div>
+        <p style="font-size:11px; color:var(--muted); margin: 8px 0 0;">
+          Processa um CNPJ que não está no cnpjs.csv — cria o site no Buildfy automaticamente se ainda não existir.
+        </p>
+      </div>
+
+      <div class="card">
         <h2>CNPJs (cnpjs.csv)</h2>
         <input data-el="cnpj-search" placeholder="Buscar por CNPJ ou razão social..." style="width:100%; padding:8px; margin-bottom:10px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
         <div class="cnpj-table-wrap" style="max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
@@ -1225,6 +1236,17 @@
     for (const slot of SLOTS) {
       el(slot, 'select-profile').addEventListener('change', (e) => selectCnpjForProfile(slot, e.target.value));
       el(slot, 'cnpj-search').addEventListener('input', (e) => renderCnpjTable(slot, e.target.value));
+
+      el(slot, 'btn-cnpj-avulso').addEventListener('click', () => {
+        const raw = el(slot, 'cnpj-avulso').value.trim();
+        const digits = raw.replace(/\D/g, '');
+        if (digits.length !== 14) {
+          alert('CNPJ inválido — precisa ter 14 dígitos.');
+          return;
+        }
+        selectCnpj(slot, digits);
+        el(slot, 'cnpj-avulso').value = '';
+      });
 
       el(slot, 'btn-start').addEventListener('click', async () => {
         el(slot, 'btn-start').disabled = true;
