@@ -220,22 +220,36 @@ def get_site_data(driver, site_id: str, cnpj: str = "") -> SiteData:
     wait = WebDriverWait(driver, 15)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='page__InfoRow']")))
 
-    fields: dict[str, str] = {}
-    rows = driver.find_elements(By.CSS_SELECTOR, "[class*='page__InfoRow']")
-    for row in rows:
-        try:
-            label_els = row.find_elements(By.CSS_SELECTOR, "[class*='page__InfoLabel']")
-            value_els = row.find_elements(By.CSS_SELECTOR, "[class*='page__InfoValue']")
-            if not label_els or not value_els:
+    def _scrape_fields() -> dict[str, str]:
+        result: dict[str, str] = {}
+        rows = driver.find_elements(By.CSS_SELECTOR, "[class*='page__InfoRow']")
+        for row in rows:
+            try:
+                label_els = row.find_elements(By.CSS_SELECTOR, "[class*='page__InfoLabel']")
+                value_els = row.find_elements(By.CSS_SELECTOR, "[class*='page__InfoValue']")
+                if not label_els or not value_els:
+                    continue
+                # o botão "Copiar" fica dentro da mesma row; pega só o texto direto do
+                # próprio elemento de label/valor, sem herdar texto de filhos extras
+                label = label_els[0].text.strip()
+                value = value_els[0].text.strip()
+                if label:
+                    result[label.lower()] = value
+            except Exception:
                 continue
-            # o botão "Copiar" fica dentro da mesma row; pega só o texto direto do
-            # próprio elemento de label/valor, sem herdar texto de filhos extras
-            label = label_els[0].text.strip()
-            value = value_els[0].text.strip()
-            if label:
-                fields[label.lower()] = value
-        except Exception:
-            continue
+        return result
+
+    # a presença do primeiro InfoRow não garante que TODOS os campos já
+    # renderizaram (a página popula as rows de forma assíncrona) — sem esse
+    # retry, "empresa" podia vir vazio se o scraping rodasse entre o primeiro
+    # row aparecer e o campo "Empresa" especificamente ainda não ter valor,
+    # quebrando o nome usado na criação do Business Manager.
+    fields: dict[str, str] = {}
+    for _ in range(10):
+        fields = _scrape_fields()
+        if fields.get("empresa"):
+            break
+        time.sleep(0.5)
 
     # o link do site pode não ser .com (ex: .store, .net) — tenta achar qualquer
     # link externo visível na página antes de restringir por TLD específico

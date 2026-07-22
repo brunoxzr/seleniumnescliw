@@ -16,6 +16,7 @@ from app.automations.orchestrator import (
     DEFAULT_PROFILE,
     SINGLE_STEP_RUNNERS,
     SLOTS,
+    run_facebook_login_only,
     run_for_next_pending_cnpj,
     run_single_step,
 )
@@ -87,6 +88,29 @@ def automation_start():
     return jsonify({"ok": True})
 
 
+@app.route("/api/automation/facebook-login", methods=["POST"])
+def automation_facebook_login():
+    """Processo independente de CNPJ: só abre o perfil e garante login no
+    Facebook (2FA se pedido). Depois disso, 'continuar processo' já encontra
+    a sessão logada e pula direto para a criação do site."""
+    slot = _slot()
+    if run_log.get_state(slot)["running"]:
+        return jsonify({"ok": False, "error": f"Já existe uma execução em andamento no robô {slot}"}), 409
+
+    body = request.get_json(silent=True) or {}
+    profile_id = (body.get("profile_id") or "").strip() or DEFAULT_PROFILE
+
+    def _run():
+        try:
+            run_facebook_login_only(profile_id=profile_id, slot=slot)
+        except Exception:
+            pass  # já registrado no run_log pelo orquestrador
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/automation/run-step", methods=["POST"])
 def automation_run_step():
     slot = _slot()
@@ -120,6 +144,23 @@ def api_cnpjs():
         # exclui da lista os CNPJs sendo processados agora por OUTRO robô — o
         # slot que está chamando continua vendo o que ele mesmo está rodando
         items = cnpj_list.list_cnpjs_with_status(exclude_slot=_slot())
+        return jsonify({"ok": True, "items": items})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cnpjs-avulsos", methods=["GET", "POST"])
+def api_cnpjs_avulsos():
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        cnpj = (body.get("cnpj") or "").strip()
+        if len(cnpj) != 14 or not cnpj.isdigit():
+            return jsonify({"ok": False, "error": "CNPJ inválido — precisa ter 14 dígitos."}), 400
+        cnpj_list.add_avulso(cnpj)
+        return jsonify({"ok": True})
+
+    try:
+        items = cnpj_list.list_avulsos_with_status(exclude_slot=_slot())
         return jsonify({"ok": True, "items": items})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

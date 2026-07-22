@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Painel de Automação</title>
+  <link rel="icon" type="image/png" href="/static/logo.png">
   <style>
     :root {
       --bg: #0c0d11;
@@ -373,6 +374,7 @@
     .status-pill.concluido { background: rgba(34,197,94,0.2); color: var(--success); }
     .status-pill.abortado { background: rgba(239,68,68,0.2); color: var(--error); }
     .status-pill.emandamento { background: rgba(59,130,246,0.2); color: var(--accent); }
+    .status-pill.emuso { background: rgba(168,85,247,0.2); color: var(--manual); }
 
     .cp-row { display:flex; align-items:center; gap:8px; font-size:13px; padding:4px 0; }
     .cp-row label { flex:1; cursor:pointer; }
@@ -626,11 +628,13 @@
         </div>
 
         <button data-el="btn-start">Processar CNPJ selecionado</button>
+        <button data-el="btn-fb-login" style="background: transparent; border: 1px solid var(--border); color: var(--text); margin-left: 8px;">Só logar Facebook</button>
         <button data-el="btn-pause" style="background: var(--warning); margin-left: 8px;" disabled>Pausar</button>
         <button data-el="btn-close-browser" style="background: transparent; border: 1px solid var(--border); color: var(--muted); margin-left: 8px;">Fechar navegador</button>
         <span data-el="selected-cnpj-label" style="margin-left: 10px; font-size: 13px; color: var(--muted);"></span>
         <p style="font-size:11px; color:var(--muted); margin: 8px 0 0;">
           O navegador fica aberto entre execuções para agilizar testes. Use "Fechar navegador" quando terminar por hoje ou for trocar de perfil.
+          "Só logar Facebook" abre o perfil e garante o login (2FA se pedido), sem escolher CNPJ — depois use "Processar CNPJ selecionado" ou "Continuar" que a sessão já estará logada.
         </p>
       </div>
 
@@ -645,6 +649,30 @@
         <p style="font-size:12px; color:var(--muted); margin: 0 0 10px;">
           Marque uma etapa como concluída para pular ela na próxima execução. Preencha business_id/site_id se estiver marcando "Business Manager criado" ou "Dados do site obtidos" pela primeira vez manualmente.
         </p>
+      </div>
+
+      <div class="card">
+        <h2>CNPJ avulso (fora da lista)</h2>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <input data-el="cnpj-avulso" placeholder="Digite um CNPJ (só números)" maxlength="18" style="flex:1; padding:8px; border-radius:6px; background: var(--bg); color: var(--text); border: 1px solid var(--border);">
+          <button data-el="btn-cnpj-avulso">Adicionar e selecionar</button>
+        </div>
+        <p style="font-size:11px; color:var(--muted); margin: 0 0 10px;">
+          Processa um CNPJ que não está no cnpjs.csv — cria o site no Buildfy automaticamente se ainda não existir. Fica salvo na lista abaixo para reutilizar depois.
+        </p>
+        <div class="cnpj-table-wrap" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+          <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="position: sticky; top:0; background: var(--card);">
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);"></th>
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">CNPJ</th>
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">Razão Social</th>
+                <th style="text-align:left; padding:8px; border-bottom:1px solid var(--border);">Status</th>
+              </tr>
+            </thead>
+            <tbody data-el="cnpj-avulso-table-body"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
@@ -700,6 +728,7 @@
     // processados por qualquer um deles ficam de fora)
     const state = {};
     const cnpjsBySlot = {};
+    const cnpjsAvulsosBySlot = {};
     for (const slot of SLOTS) {
       state[slot] = {
         selectedCnpj: null,
@@ -708,6 +737,7 @@
         notifyInitialized: false,
       };
       cnpjsBySlot[slot] = [];
+      cnpjsAvulsosBySlot[slot] = [];
     }
 
     function el(slot, name) {
@@ -959,6 +989,7 @@
         el(slot, 'status-cnpj').textContent = data.current_cnpj ? `CNPJ: ${data.current_cnpj}` : '';
 
         el(slot, 'btn-start').disabled = data.running;
+        el(slot, 'btn-fb-login').disabled = data.running;
         el(slot, 'btn-pause').disabled = data.pause_requested;
         document.querySelectorAll(`#panel-${slot} [data-run-step]`).forEach(btn => {
           btn.disabled = data.running;
@@ -1019,7 +1050,7 @@
     });
 
     function statusLabel(status) {
-      const map = { pendente: 'Pendente', concluido: 'Concluído', abortado: 'Abortado' };
+      const map = { pendente: 'Pendente', concluido: 'Concluído', abortado: 'Abortado', em_uso: 'Em uso (outro robô)' };
       return map[status] || 'Em andamento';
     }
 
@@ -1027,6 +1058,7 @@
       if (status === 'pendente') return 'pendente';
       if (status === 'concluido') return 'concluido';
       if (status === 'abortado') return 'abortado';
+      if (status === 'em_uso') return 'emuso';
       return 'emandamento';
     }
 
@@ -1058,6 +1090,43 @@
           selectCnpj(slot, row.getAttribute('data-cnpj'));
         });
       });
+    }
+
+    function renderCnpjAvulsoTable(slot) {
+      const tbody = el(slot, 'cnpj-avulso-table-body');
+      const items = cnpjsAvulsosBySlot[slot];
+      const selected = state[slot].selectedCnpj;
+      tbody.innerHTML = items.map(c => `
+        <tr data-cnpj="${c.cnpj}" class="${c.cnpj === selected ? 'selected' : ''}">
+          <td><input type="radio" name="cnpj-avulso-radio-${slot}" ${c.cnpj === selected ? 'checked' : ''}></td>
+          <td>${c.cnpj}</td>
+          <td>${c.razao_social || '—'}</td>
+          <td><span class="status-pill ${statusClass(c.status)}">${statusLabel(c.status)}</span></td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" style="color:var(--muted); padding:10px;">Nenhum CNPJ avulso adicionado ainda.</td></tr>';
+
+      tbody.querySelectorAll('tr[data-cnpj]').forEach(row => {
+        row.addEventListener('click', () => {
+          selectCnpj(slot, row.getAttribute('data-cnpj'));
+        });
+      });
+    }
+
+    async function loadCnpjsAvulsos(slot) {
+      try {
+        const resp = await fetch(`/api/cnpjs-avulsos?slot=${slot}`);
+        const data = await resp.json();
+        if (data.ok) {
+          cnpjsAvulsosBySlot[slot] = data.items;
+          renderCnpjAvulsoTable(slot);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function loadCnpjsAvulsosAllSlots() {
+      for (const slot of SLOTS) loadCnpjsAvulsos(slot);
     }
 
     const STEP_LABELS = {
@@ -1157,6 +1226,7 @@
             }
             loadCheckpoints(slot, cnpj);
             loadCnpjsAllSlots();
+            loadCnpjsAvulsosAllSlots();
           });
         });
 
@@ -1226,6 +1296,23 @@
       el(slot, 'select-profile').addEventListener('change', (e) => selectCnpjForProfile(slot, e.target.value));
       el(slot, 'cnpj-search').addEventListener('input', (e) => renderCnpjTable(slot, e.target.value));
 
+      el(slot, 'btn-cnpj-avulso').addEventListener('click', async () => {
+        const raw = el(slot, 'cnpj-avulso').value.trim();
+        const digits = raw.replace(/\D/g, '');
+        if (digits.length !== 14) {
+          alert('CNPJ inválido — precisa ter 14 dígitos.');
+          return;
+        }
+        await fetch('/api/cnpjs-avulsos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cnpj: digits }),
+        });
+        el(slot, 'cnpj-avulso').value = '';
+        loadCnpjsAvulsosAllSlots();
+        selectCnpj(slot, digits);
+      });
+
       el(slot, 'btn-start').addEventListener('click', async () => {
         el(slot, 'btn-start').disabled = true;
         const profileId = el(slot, 'select-profile').value;
@@ -1238,6 +1325,18 @@
         // o CNPJ que este robô acabou de pegar precisa sumir da lista dos
         // outros robôs imediatamente, sem esperar o próximo ciclo de 15s
         loadCnpjsAllSlots();
+        loadCnpjsAvulsosAllSlots();
+      });
+
+      el(slot, 'btn-fb-login').addEventListener('click', async () => {
+        el(slot, 'btn-fb-login').disabled = true;
+        const profileId = el(slot, 'select-profile').value;
+        await fetch('/api/automation/facebook-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: profileId, slot }),
+        });
+        pollSlot(slot);
       });
 
       el(slot, 'btn-resume').addEventListener('click', async () => {
@@ -1305,6 +1404,8 @@
     setInterval(pollAll, 2000);
     loadCnpjsAllSlots();
     setInterval(loadCnpjsAllSlots, 15000);
+    loadCnpjsAvulsosAllSlots();
+    setInterval(loadCnpjsAvulsosAllSlots, 15000);
     setInterval(() => { for (const slot of SLOTS) loadProfiles(slot); }, 30000);
   </script>
 </body>

@@ -1,11 +1,14 @@
 """Lê o cnpjs.csv e cruza com o tracker para mostrar status de cada linha no dashboard."""
 import csv
+import json
 import os
+from datetime import datetime, timezone
 
 from .. import paths
 from . import run_log, tracker
 
 CSV_PATH = os.path.join(paths.BASE_DIR, "cnpjs.csv")
+AVULSOS_PATH = os.path.join(paths.BASE_DIR, "data", "cnpjs_avulsos.json")
 
 
 def list_cnpjs_with_status(limit: int = 200, exclude_slot: str | None = None) -> list[dict]:
@@ -45,6 +48,52 @@ def list_cnpjs_with_status(limit: int = 200, exclude_slot: str | None = None) ->
             })
             if len(rows) >= limit:
                 break
+    return rows
+
+
+def _load_avulsos() -> list[dict]:
+    if not os.path.exists(AVULSOS_PATH):
+        return []
+    with open(AVULSOS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_avulsos(items: list[dict]) -> None:
+    os.makedirs(os.path.dirname(AVULSOS_PATH), exist_ok=True)
+    with open(AVULSOS_PATH, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+def add_avulso(cnpj: str) -> None:
+    """Registra um CNPJ avulso na lista persistente — mantém o histórico de
+    CNPJs digitados manualmente (fora do cnpjs.csv) para reaparecerem na
+    lista do dashboard mesmo depois de já terem sido processados."""
+    items = _load_avulsos()
+    if any(item["cnpj"] == cnpj for item in items):
+        return
+    items.append({"cnpj": cnpj, "added_at": datetime.now(timezone.utc).isoformat()})
+    _save_avulsos(items)
+
+
+def list_avulsos_with_status(exclude_slot: str | None = None) -> list[dict]:
+    """Lista de CNPJs avulsos com status atual — ao contrário da lista
+    principal (list_cnpjs_with_status), NÃO some da lista quando já
+    processado: o usuário pediu para continuar vendo os avulsos que já
+    adicionou, com o status atualizado, em vez de desaparecerem."""
+    in_use_elsewhere = run_log.get_cnpjs_in_use(exclude_slot=exclude_slot)
+    rows = []
+    for item in _load_avulsos():
+        cnpj = item["cnpj"]
+        record = tracker.get_record(cnpj)
+        if cnpj in in_use_elsewhere:
+            status = "em_uso"
+        else:
+            status = (record.get("status") if record else None) or "pendente"
+        rows.append({
+            "cnpj": cnpj,
+            "razao_social": (record or {}).get("data", {}).get("empresa", ""),
+            "status": status,
+        })
     return rows
 
 
