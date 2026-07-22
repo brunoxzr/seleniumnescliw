@@ -15,5 +15,3 @@ prod/MavioRobot/.env
 prod/MavioRobot/cnpjs.csv
 prod/MavioRobot/data/
 prod/*.zip
-
-extensions/

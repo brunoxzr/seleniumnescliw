@@ -7,12 +7,6 @@ em vez de 5). Em vez de confiar cegamente na posição fixa, o totp_secret é
 identificado pelo FORMATO do valor (Base32-like: só A-Z/2-7, sem @, sem
 prefixo de token tipo "RefreshToken="), com a posição padrão como primeira
 tentativa e uma busca por conteúdo em todos os campos como fallback.
-
-Um segundo modelo de remark usa '|' como separador, em ordem diferente:
-username|password|totp_secret|email|password2|email_recovery
-(ex: telefone|senha|BASE32SECRET|email@provedor.com|senha2|email_recuperacao).
-O e-mail principal aqui é identificado pelo formato (contém '@'), assim como
-o totp_secret — não dá pra usar posição fixa entre os dois modelos.
 """
 import re
 from dataclasses import dataclass
@@ -73,32 +67,6 @@ def get_facebook_credentials(profile_id: str) -> FacebookCredentials:
         raise AdsPowerError(f"Perfil {profile_id} não encontrado")
 
     remark = items[0].get("remark", "")
-
-    # o modelo com '|' (username|password|totp_secret|email|password2|email_recovery)
-    # usa outra ordem e outro separador do modelo original com ':' — detecta pelo
-    # separador presente no remark, já que os dois nunca se misturam
-    if "|" in remark:
-        parts = remark.split("|")
-        if len(parts) < 4:
-            raise AdsPowerError(
-                f"Remark do perfil {profile_id} não está no formato esperado "
-                "(username|password|totp_secret|email|password2|email_recovery)"
-            )
-        username, password = parts[0], parts[1]
-        totp_secret = _find_totp_secret(parts, parts[2])
-        email_candidates = [p for p in parts if "@" in p]
-        if not email_candidates:
-            raise AdsPowerError(f"Remark do perfil {profile_id} não tem nenhum campo de e-mail reconhecível.")
-        email = email_candidates[0]
-        access_token = ""
-        return FacebookCredentials(
-            username=username,
-            password=password,
-            email=email,
-            totp_secret=totp_secret,
-            access_token=access_token,
-        )
-
     parts = remark.split(":")
     if len(parts) < 5:
         raise AdsPowerError(f"Remark do perfil {profile_id} não está no formato esperado (username:password:email:password:totp_secret:...)")

@@ -337,22 +337,8 @@ def _wait_for_login_state(driver, timeout_s: float = 90.0) -> bool:
 
 
 def ensure_logged_in(driver, profile_id: str, on_manual_step=None) -> None:
-    # não re-navega para facebook.com se já estiver no meio de um checkpoint de
-    # segurança/2FA — isso corta um captcha em andamento (ex: token do CapSolver
-    # sendo processado) e joga de volta pra tela de login "do zero", fazendo a
-    # sessão parecer estar "ficando dando refresh" a cada retry de
-    # run_step_with_fallback. Uma chamada repetida de ensure_logged_in (comum
-    # quando a etapa falha e é tentada de novo) deve retomar de onde parou.
-    current_url = safe_url(driver)
-    already_mid_flow = (
-        "two_step_verification/authentication" in current_url
-        or "two_factor" in current_url
-        or driver.find_elements(By.NAME, "email")
-    )
-    print(f"[fb_login] ensure_logged_in chamado. url_atual={current_url!r} already_mid_flow={bool(already_mid_flow)}")
-    if not already_mid_flow:
-        driver.get("https://www.facebook.com/")
-        time.sleep(1)
+    driver.get("https://www.facebook.com/")
+    time.sleep(1)
     _wait_for_login_state(driver)
 
     # a sessão pode já ter usuário/senha aceitos de uma tentativa anterior e cair
@@ -444,16 +430,6 @@ def ensure_logged_in(driver, profile_id: str, on_manual_step=None) -> None:
                 # 'two_step_verification/authentication' por bastante tempo antes de
                 # resolver sozinha ou redirecionar — usa o mesmo timeout generoso de
                 # _wait_for_login_state em vez de um deadline curto e fixo.
-                #
-                # O checkpoint pode mostrar um reCAPTCHA Enterprise ("Não sou um
-                # robô") nesse meio-tempo. Resolução via API crua do CapSolver
-                # (token injetado manualmente no textarea) foi testada e o
-                # Facebook REJEITA o token — mesmo com clique real no checkbox
-                # e callback disparado sem erro, a página nunca avança e a sessão
-                # cai de volta pro login. A extensão real do CapSolver (instalada
-                # no perfil via AdsPower, configurada por capsolver_extension.py)
-                # resolve esse mesmo captcha com sucesso, então aqui só esperamos
-                # passivamente ela agir — sem competir com token próprio.
                 deadline = time.time() + 90
                 while time.time() < deadline:
                     url = safe_url(driver)
@@ -497,12 +473,7 @@ def ensure_logged_in(driver, profile_id: str, on_manual_step=None) -> None:
     # "two_factor" nessa variante, então checar só a URL não é suficiente —
     # também confere se a tela de aprovação pendente ainda está visível.
     still_awaiting_app_approval = _is_app_approval_screen(driver)
-    has_email_field = bool(driver.find_elements(By.NAME, "email"))
-    print(
-        f"[fb_login] checagem final. url={final_url!r} has_email_field={has_email_field} "
-        f"still_needs_code={still_needs_code} still_awaiting_app_approval={still_awaiting_app_approval}"
-    )
-    if has_email_field or still_needs_code or still_awaiting_app_approval:
+    if driver.find_elements(By.NAME, "email") or still_needs_code or still_awaiting_app_approval:
         raise RuntimeError(
             f"Login no Facebook não foi concluído para o perfil {profile_id} "
             f"(URL final: {final_url}, aguardando aprovação por app: {still_awaiting_app_approval})"
