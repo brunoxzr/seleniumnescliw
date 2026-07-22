@@ -15,6 +15,7 @@ import re
 from app.adspower.driver import close_driver, open_driver
 from . import (
     buildfy,
+    capsolver_extension,
     facebook_business_info,
     facebook_business_verification,
     facebook_domain,
@@ -58,12 +59,19 @@ class _Ctx:
     def wait_manual(self, message: str, timeout: int = 900) -> None:
         pause_module.wait_for_manual_step(message, timeout=timeout, slot=self.slot)
 
-    def run_step_with_fallback(self, step_fn, step_name: str, max_retries: int = 1):
+    def run_step_with_fallback(self, step_fn, step_name: str, max_retries: int = 1, driver=None):
         """Executa uma etapa; se falhar com um erro inesperado (ex: tela nova/não
         mapeada, elemento não encontrado), pausa pedindo intervenção manual em vez de
         abortar o fluxo inteiro. Ao retomar, tenta a etapa de novo automaticamente —
         a ideia é que o usuário resolva manualmente na tela (clique, preenchimento,
         fechar um popup inesperado) e a automação prossiga sozinha depois disso.
+
+        Captcha é resolvido pela extensão CapSolver instalada no perfil do
+        AdsPower (configurada por capsolver_extension.set_api_key), não por
+        injeção de token via API crua daqui — testado ao vivo: o Facebook
+        rejeita um token injetado manualmente nesse tipo de checkpoint mesmo
+        com clique real no widget, mas a extensão de verdade resolve com
+        sucesso o mesmo captcha.
         """
         last_error = None
         for attempt in range(max_retries + 1):
@@ -75,6 +83,7 @@ class _Ctx:
                 last_error = e
                 if attempt >= max_retries:
                     break
+
                 self.log(
                     f"Erro inesperado em '{step_name}' [{type(e).__name__}]: {e}. "
                     "Resolva manualmente na tela do navegador e clique Continuar para tentar de novo.",
@@ -169,11 +178,9 @@ def _step_business_manager(ctx: _Ctx, driver, profile_id: str, cnpj: str, saved:
     ctx.run_step_with_fallback(
         lambda: facebook_login.ensure_logged_in(driver, profile_id, on_manual_step=_login_manual_step),
         "Login no Facebook",
+        driver=driver,
     )
     ctx.log("Login no Facebook confirmado")
-
-    facebook_language.set_language_english(driver)
-    ctx.log("Idioma da conta definido como English (US) para criação do BM")
 
     def _bm_manual_step(message: str) -> None:
         ctx.log(message, level="manual")
@@ -431,6 +438,11 @@ def run_facebook_login_only(
     try:
         ctx.log(f"Usando perfil AdsPower: {profile_id}")
 
+        try:
+            capsolver_extension.set_api_key(driver)
+        except Exception as e:
+            ctx.log(f"Não foi possível configurar a API key do CapSolver na extensão: {e}", level="warning")
+
         def _login_manual_step(message: str) -> None:
             ctx.log(message, level="manual")
             ctx.wait_manual(message)
@@ -439,6 +451,7 @@ def run_facebook_login_only(
         ctx.run_step_with_fallback(
             lambda: facebook_login.ensure_logged_in(driver, profile_id, on_manual_step=_login_manual_step),
             "Login no Facebook",
+            driver=driver,
         )
         ctx.log("Login no Facebook confirmado", level="success")
         ctx.finish_run(True, "Login no Facebook concluído")
@@ -472,6 +485,16 @@ def run_for_next_pending_cnpj(
     try:
         ctx.log(f"Usando perfil AdsPower: {profile_id}")
 
+        # configura a API key do CapSolver na extensão instalada no perfil
+        # (se ela estiver instalada) — silencioso e não bloqueante: se a
+        # extensão não estiver configurada no AdsPower ainda, ou a chamada
+        # falhar por qualquer motivo, o fluxo segue normalmente (só não terá
+        # resolução automática de captcha via extensão nesse perfil).
+        try:
+            capsolver_extension.set_api_key(driver)
+        except Exception as e:
+            ctx.log(f"Não foi possível configurar a API key do CapSolver na extensão: {e}", level="warning")
+
         # login no Facebook primeiro, ANTES de qualquer coisa do Buildfy/CNPJ —
         # não depende de qual CNPJ vai ser processado, só do perfil AdsPower.
         # Motivação: se o 2FA falhar, não desperdiça um crédito de criação de
@@ -486,6 +509,7 @@ def run_for_next_pending_cnpj(
         ctx.run_step_with_fallback(
             lambda: facebook_login.ensure_logged_in(driver, profile_id, on_manual_step=_login_manual_step),
             "Login no Facebook",
+            driver=driver,
         )
         ctx.log("Login no Facebook confirmado")
 
@@ -545,16 +569,6 @@ def run_for_next_pending_cnpj(
         ctx.check_pause()
         done = set(tracker.get_record(cnpj)["steps_done"])
         if "business_manager_criado" not in done:
-            # o formulário de criação do BM só tem seletores confiáveis
-            # mapeados na versão em inglês da tela — se a conta estiver em
-            # outro idioma (ex: pt-BR, herdado do perfil AdsPower), força
-            # inglês antes de abrir o formulário. Volta para pt-BR mais
-            # adiante no fluxo (etapa "idioma_pt_br", antes do WhatsApp).
-            ctx.run_step_with_fallback(
-                lambda: facebook_language.set_language_english(driver), "Definir idioma da conta para inglês"
-            )
-            ctx.log("Idioma da conta definido como English (US) para criação do BM")
-
             def _bm_manual_step(message: str) -> None:
                 ctx.log(message, level="manual")
                 ctx.wait_manual(message)
@@ -706,17 +720,43 @@ def run_for_next_pending_cnpj(
             ctx.run_step_with_fallback(
                 lambda: facebook_whatsapp.start_create_whatsapp_account(driver, business_id),
                 "Iniciar conta WhatsApp",
+                driver=driver,
             )
             ctx.log("Wizard de criação da conta WhatsApp aberto")
+
+            ctx.run_step_with_fallback(
+                lambda: facebook_whatsapp.select_category_other(driver),
+                "Selecionar categoria 'Outro' no WhatsApp",
+                driver=driver,
+            )
+            ctx.log("Categoria 'Outro' selecionada")
+
+            # captcha "Não sou um robô" nessa tela é resolvido pela extensão
+            # CapSolver real instalada no perfil (resolução via API crua foi
+            # testada e o Facebook rejeita) — aguarda ela marcar o checkbox
+            # sozinha antes de clicar Continuar.
+            ctx.run_step_with_fallback(
+                lambda: facebook_whatsapp.wait_captcha_solved(driver),
+                "Aguardar captcha do WhatsApp ser resolvido pela extensão",
+                max_retries=3,
+                driver=driver,
+            )
+            ctx.log("Captcha do WhatsApp resolvido (extensão CapSolver)")
+
+            ctx.run_step_with_fallback(
+                lambda: facebook_whatsapp.click_continue_to_phone_step(driver),
+                "Clicar Continuar (WhatsApp -> etapa de telefone)",
+                driver=driver,
+            )
+            ctx.log("Avançou para a etapa de telefone do WhatsApp")
             tracker.save_checkpoint(cnpj, "whatsapp_categoria_preenchida")
 
-            ctx.log(
-                "Selecione a categoria 'Outro', preencha o telefone, resolva a "
-                "verificação/captcha na tela do WhatsApp e clique Continuar quando terminar.",
-                level="manual",
+            ctx.run_step_with_fallback(
+                lambda: facebook_whatsapp.select_display_name_only(driver),
+                "Selecionar 'Usar somente nome de exibição' (WhatsApp)",
+                driver=driver,
             )
-            ctx.wait_manual("Concluir criação da conta WhatsApp (categoria + telefone + captcha)")
-            ctx.log("Confirmado: etapa de WhatsApp concluída manualmente", level="success")
+            ctx.log("Conta WhatsApp criada com nome de exibição (sem telefone)", level="success")
             tracker.save_checkpoint(cnpj, "whatsapp_concluido")
         else:
             ctx.log("Etapa de WhatsApp já tratada anteriormente")
@@ -731,6 +771,7 @@ def run_for_next_pending_cnpj(
                 lambda: facebook_business_verification.start_business_verification(driver, business_id, cnpj),
                 "Iniciar verificação de negócio",
                 max_retries=4,
+                driver=driver,
             )
             ctx.log("Wizard de verificação de negócio preenchido até a etapa de telefone/site")
             tracker.save_checkpoint(cnpj, "verificacao_negocio_iniciada")

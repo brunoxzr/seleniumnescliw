@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from . import facebook_scope
+from . import facebook_language, facebook_scope
 from .driver_utils import safe_url
 
 CREATE_BM_URL = (
@@ -168,9 +168,19 @@ def create_business_manager(
             "Resolva manualmente pelo AdsPower antes de tentar novamente."
         )
 
-    # os placeholders abaixo só existem com a conta em inglês — o orquestrador
-    # garante isso chamando facebook_language.set_language_english antes de
-    # criar o Business Manager (e volta para pt-BR depois, mais adiante no fluxo).
+    # o formulário só tem seletores confiáveis mapeados em inglês. Se a conta
+    # estiver em outro idioma (ex: pt-BR, herdado do perfil AdsPower), o
+    # placeholder "Jasper's Market" não existe — só então força inglês e
+    # recarrega a tela de criação, em vez de sempre trocar o idioma de saída
+    # (a maioria das contas já está em inglês, então isso evita uma navegação
+    # extra desnecessária no caso comum).
+    if not driver.find_elements(By.CSS_SELECTOR, "input[placeholder=\"Jasper's Market\"]"):
+        facebook_language.set_language_english(driver)
+        driver.get(CREATE_BM_URL)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder=\"Jasper's Market\"]"))
+        )
+
     business_name_field = driver.find_element(By.CSS_SELECTOR, "input[placeholder=\"Jasper's Market\"]")
     your_name_field = driver.find_element(By.CSS_SELECTOR, "input[placeholder*='first and last name']")
     email_field = driver.find_element(By.XPATH, "//input[not(@placeholder)]")
