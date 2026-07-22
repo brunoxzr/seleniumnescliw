@@ -34,24 +34,20 @@ def _click_js(driver, element) -> None:
     driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", element)
 
 
-def _set_language(driver, target_text: str, row_label_texts: list[str]) -> None:
+def _set_language(driver, target_text: str) -> None:
     """Abre a tela de idioma/região e seleciona o idioma cujo texto do rádio
     contém `target_text` (ex: 'Português (Brasil)' ou 'English (US)').
 
-    `row_label_texts` são as variações possíveis do texto da linha "Account
-    language" que abre o modal — o rótulo da linha muda conforme o idioma
-    ATUAL da conta, então passamos as duas formas conhecidas (inglês e
-    português) e usamos a primeira que aparecer na tela.
+    A linha que abre o modal ("Account language" / "Idioma da conta") muda de
+    rótulo conforme o idioma ATUAL da conta — por isso tenta as duas variantes
+    conhecidas, já que não sabemos de antemão em qual idioma a conta está.
     """
     driver.get(LANGUAGE_URL)
     time.sleep(1)
 
-    account_language_row = _find_visible_by_text(driver, row_label_texts)
+    account_language_row = _find_visible_by_text(driver, ["Account language", "Idioma da conta"])
     if account_language_row is None:
-        raise RuntimeError(
-            f"Linha 'Account language' não encontrada na tela de idioma/região "
-            f"(tentado: {row_label_texts})."
-        )
+        raise RuntimeError("Linha 'Account language' não encontrada na tela de idioma/região.")
     _click_js(driver, account_language_row)
 
     wait = WebDriverWait(driver, 10)
@@ -81,11 +77,11 @@ def _set_language(driver, target_text: str, row_label_texts: list[str]) -> None:
 
 def set_language_pt_br(driver) -> None:
     """Garante que o idioma da conta está definido como Português (Brasil)."""
-    _set_language(driver, "Português (Brasil)", ["Account language", "Idioma da conta"])
+    _set_language(driver, "Português (Brasil)")
 
 
 def set_language_english(driver) -> None:
     """Garante que o idioma da conta está definido como English (US) — usado
-    antes da criação do Business Manager, cujo formulário só tem seletores
-    estáveis mapeados na versão em inglês da tela."""
-    _set_language(driver, "English (US)", ["Account language", "Idioma da conta"])
+    como fallback na criação do Business Manager, cujo formulário só tem
+    seletores confiáveis mapeados na versão em inglês da tela."""
+    _set_language(driver, "English (US)")
